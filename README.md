@@ -66,8 +66,8 @@ All slash interactions automatically issue a non-blocking `interaction.response.
 Ensure that your host system runs Windows 10/11 (64-bit) with Python 3.7+ installed.
 1. **Clone the Repository**:
    ```bash
-   git clone https://github.com/evanovar/RobloxAccountManager
-   cd RobloxAccountManager
+   git clone https://github.com/Krishna07-kkr/account-manager
+   cd account-manager
    ```
 2. **Install Locked Dependencies**:
    ```bash
