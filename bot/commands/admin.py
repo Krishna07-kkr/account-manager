@@ -75,25 +75,50 @@ async def handle_interaction(bot, command_name, d, token, headers, resolved_app_
                         pass
                 local_appdata = os.getenv('LOCALAPPDATA')
                 if local_appdata:
-                    versions_dir = os.path.join(local_appdata, 'Roblox', 'Versions')
-                    if os.path.exists(versions_dir):
-                        for item in os.listdir(versions_dir):
-                            item_path = os.path.join(versions_dir, item)
-                            if os.path.isdir(item_path) and os.path.exists(os.path.join(item_path, 'RobloxPlayerBeta.exe')):
-                                client_settings_dir = os.path.join(item_path, 'ClientSettings')
-                                if not os.path.exists(client_settings_dir):
-                                    os.makedirs(client_settings_dir)
-                                settings_file = os.path.join(client_settings_dir, 'ClientAppSettings.json')
-                                settings = {}
-                                if os.path.exists(settings_file):
+                    launcher_roots = ['Roblox', 'Bloxstrap', 'Fishstrap', 'Froststrap', 'Voidstrap']
+                    for root in launcher_roots:
+                        versions_dir = os.path.join(local_appdata, root, 'Versions')
+                        if os.path.exists(versions_dir):
+                            for item in os.listdir(versions_dir):
+                                item_path = os.path.join(versions_dir, item)
+                                if os.path.isdir(item_path) and os.path.exists(os.path.join(item_path, 'RobloxPlayerBeta.exe')):
+                                    client_settings_dir = os.path.join(item_path, 'ClientSettings')
+                                    if not os.path.exists(client_settings_dir):
+                                        os.makedirs(client_settings_dir)
+                                    settings_file = os.path.join(client_settings_dir, 'ClientAppSettings.json')
+                                    settings = {}
+                                    if os.path.exists(settings_file):
+                                        try:
+                                            with open(settings_file, 'r', encoding='utf-8') as f:
+                                                settings = json.load(f)
+                                        except:
+                                            pass
+                                    settings["DFIntTaskSchedulerTargetFps"] = fps_cap
                                     try:
-                                        with open(settings_file, 'r', encoding='utf-8') as f:
+                                        with open(settings_file, 'w', encoding='utf-8') as f:
+                                            json.dump(settings, f, indent=2)
+                                    except:
+                                        pass
+                        
+                        if root == 'Bloxstrap':
+                            mods_client_settings_dir = os.path.join(local_appdata, 'Bloxstrap', 'Modifications', 'ClientSettings')
+                            if not os.path.exists(mods_client_settings_dir):
+                                try:
+                                    os.makedirs(mods_client_settings_dir)
+                                except:
+                                    pass
+                            if os.path.exists(mods_client_settings_dir):
+                                mods_settings_file = os.path.join(mods_client_settings_dir, 'ClientAppSettings.json')
+                                settings = {}
+                                if os.path.exists(mods_settings_file):
+                                    try:
+                                        with open(mods_settings_file, 'r', encoding='utf-8') as f:
                                             settings = json.load(f)
                                     except:
                                         pass
                                 settings["DFIntTaskSchedulerTargetFps"] = fps_cap
                                 try:
-                                    with open(settings_file, 'w', encoding='utf-8') as f:
+                                    with open(mods_settings_file, 'w', encoding='utf-8') as f:
                                         json.dump(settings, f, indent=2)
                                 except:
                                     pass

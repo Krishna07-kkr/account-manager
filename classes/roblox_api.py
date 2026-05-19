@@ -590,7 +590,6 @@ class RobloxAPI:
     def _execute_launch(url, launcher_preference, custom_launcher_path="", proxy=""):
         """Execute the Roblox launch with the specified launcher"""
         try:
-            # If proxy is used, fall back from default protocol handler (startfile) to direct client command-line arguments
             if proxy and proxy.strip() and launcher_preference == "default":
                 print(f"[INFO] Account has proxy configured; falling back to direct client execution to pass --proxy-server argument.")
                 launcher_preference = "client"
@@ -751,7 +750,7 @@ class RobloxAPI:
                 print(f"[SUCCESS] Launched with Roblox Client from {latest_version.name}!")
                 return True
             
-            else:  # default
+            else:
                 os.startfile(url)
                 print("[SUCCESS] Roblox launched successfully!")
                 return True
@@ -796,35 +795,6 @@ class RobloxAPI:
             if not local_appdata:
                 return False
                 
-            versions_dir = os.path.join(local_appdata, 'Roblox', 'Versions')
-            if not os.path.exists(versions_dir):
-                return False
-                
-            active_dir = None
-            for item in os.listdir(versions_dir):
-                item_path = os.path.join(versions_dir, item)
-                if os.path.isdir(item_path) and os.path.exists(os.path.join(item_path, 'RobloxPlayerBeta.exe')):
-                    active_dir = item_path
-                    break
-                    
-            if not active_dir:
-                print("[Graphics Optimizer] Active Roblox Player version directory not found.")
-                return False
-                
-            client_settings_dir = os.path.join(active_dir, 'ClientSettings')
-            if not os.path.exists(client_settings_dir):
-                os.makedirs(client_settings_dir)
-                
-            settings_file = os.path.join(client_settings_dir, 'ClientAppSettings.json')
-            
-            settings = {}
-            if os.path.exists(settings_file):
-                try:
-                    with open(settings_file, 'r', encoding='utf-8') as f:
-                        settings = json.load(f)
-                except Exception:
-                    settings = {}
-                    
             opt_flags = {
                 "FIntRomRenderGlobalTextureQualityOverride": 3,
                 "DFIntTaskSchedulerTargetFps": 30,
@@ -834,18 +804,69 @@ class RobloxAPI:
                 "FIntRenderLODDistanceScalePercent": 10
             }
             
-            if enabled:
-                settings.update(opt_flags)
-                print(f"[Graphics Optimizer] Optimization enabled. Rendering overrides applied to: {settings_file}")
-            else:
-                for k in opt_flags.keys():
-                    if k in settings:
-                        del settings[k]
-                print(f"[Graphics Optimizer] Optimization disabled. Restoring default overrides in: {settings_file}")
+            applied = False
+            launcher_roots = ['Roblox', 'Bloxstrap', 'Fishstrap', 'Froststrap', 'Voidstrap']
+            for root in launcher_roots:
+                versions_dir = os.path.join(local_appdata, root, 'Versions')
+                if os.path.exists(versions_dir):
+                    for item in os.listdir(versions_dir):
+                        item_path = os.path.join(versions_dir, item)
+                        if os.path.isdir(item_path) and os.path.exists(os.path.join(item_path, 'RobloxPlayerBeta.exe')):
+                            client_settings_dir = os.path.join(item_path, 'ClientSettings')
+                            if not os.path.exists(client_settings_dir):
+                                os.makedirs(client_settings_dir)
+                                
+                            settings_file = os.path.join(client_settings_dir, 'ClientAppSettings.json')
+                            settings = {}
+                            if os.path.exists(settings_file):
+                                try:
+                                    with open(settings_file, 'r', encoding='utf-8') as f:
+                                        settings = json.load(f)
+                                except Exception:
+                                    settings = {}
+                                    
+                            if enabled:
+                                settings.update(opt_flags)
+                                print(f"[Graphics Optimizer] Optimization enabled. Rendering overrides applied to: {settings_file}")
+                            else:
+                                for k in opt_flags.keys():
+                                    if k in settings:
+                                        del settings[k]
+                                print(f"[Graphics Optimizer] Optimization disabled. Restoring default overrides in: {settings_file}")
+                                        
+                            with open(settings_file, 'w', encoding='utf-8') as f:
+                                json.dump(settings, f, indent=2)
+                            applied = True
                 
-            with open(settings_file, 'w', encoding='utf-8') as f:
-                json.dump(settings, f, indent=2)
-            return True
+                if root == 'Bloxstrap':
+                    mods_client_settings_dir = os.path.join(local_appdata, 'Bloxstrap', 'Modifications', 'ClientSettings')
+                    if enabled:
+                        if not os.path.exists(mods_client_settings_dir):
+                            try:
+                                os.makedirs(mods_client_settings_dir)
+                            except:
+                                pass
+                    if os.path.exists(mods_client_settings_dir):
+                        mods_settings_file = os.path.join(mods_client_settings_dir, 'ClientAppSettings.json')
+                        settings = {}
+                        if os.path.exists(mods_settings_file):
+                            try:
+                                with open(mods_settings_file, 'r', encoding='utf-8') as f:
+                                    settings = json.load(f)
+                            except Exception:
+                                settings = {}
+                        if enabled:
+                            settings.update(opt_flags)
+                            print(f"[Graphics Optimizer] Optimization enabled. Rendering overrides applied to Bloxstrap mods: {mods_settings_file}")
+                        else:
+                            for k in opt_flags.keys():
+                                if k in settings:
+                                    del settings[k]
+                            print(f"[Graphics Optimizer] Optimization disabled. Restoring default overrides in Bloxstrap mods: {mods_settings_file}")
+                        with open(mods_settings_file, 'w', encoding='utf-8') as f:
+                            json.dump(settings, f, indent=2)
+                        applied = True
+            return applied
         except Exception as e:
             print(f"[Graphics Optimizer Error] Failed to configure ClientAppSettings: {e}")
             return False

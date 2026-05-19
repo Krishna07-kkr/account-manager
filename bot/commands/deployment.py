@@ -50,6 +50,24 @@ def get_definitions():
                     "required": True
                 }
             ]
+        },
+        {
+            "name": "launch",
+            "description": "Launch accounts into Roblox game Place ID",
+            "options": [
+                {
+                    "type": 3,
+                    "name": "target",
+                    "description": "Specify 'all' to launch all accounts, or enter a specific Roblox username",
+                    "required": True
+                },
+                {
+                    "type": 3,
+                    "name": "place_id",
+                    "description": "The Roblox Place ID to join",
+                    "required": True
+                }
+            ]
         }
     ]
 
@@ -122,7 +140,7 @@ async def handle_interaction(bot, command_name, d, token, headers, resolved_app_
         asyncio.create_task(run_batch_join())
         return True
 
-    elif command_name == "join":
+    elif command_name in ("join", "launch"):
         target = d["data"]["options"][0]["value"].strip()
         place_id = d["data"]["options"][1]["value"].strip()
         url = f"https://discord.com/api/v10/interactions/{interaction_id}/{interaction_token}/callback"

@@ -35,9 +35,7 @@ class RefactoredAccountManagerUI(AccountManagerUI):
         open_settings_window(self)
 
     def refresh_accounts(self):
-        self._clear_active_instance_indicators()
-        self.account_list.delete(0, tk.END)
-        self._list_row_map = []
+        desired_rows = []
         groups = self._get_groups()
         if self.settings.get("active_instances_monitoring", False):
             try:
@@ -55,28 +53,88 @@ class RefactoredAccountManagerUI(AccountManagerUI):
             username = account_data.get('username')
             if not username or username in grouped_usernames:
                 continue
-            self._insert_account_row(username, account_data)
+            desired_rows.append(self._build_row_dict(username, account_data))
 
         for gname, members in groups.items():
             collapsed = gname in self._collapsed_groups
             visible_members = [u for u in members if any(acc.get('username') == u for acc in accounts_list)]
             header_text = self._build_group_header_text(gname, len(visible_members), collapsed)
-            idx = self.account_list.size()
-            self.account_list.insert(tk.END, header_text)
-            self._list_row_map.append(("group_header", gname))
-            self.account_list.itemconfig(
-                idx,
-                fg=self.FG_ACCENT,
-                bg=self.BG_MID,
-                selectbackground=self.BG_MID,
-                selectforeground=self.FG_ACCENT
-            )
+            
+            desired_rows.append({
+                "text": header_text,
+                "fg": self.FG_ACCENT,
+                "bg": self.BG_MID,
+                "selectbg": self.BG_MID,
+                "selectfg": self.FG_ACCENT,
+                "row_map": ("group_header", gname)
+            })
+            
             if not collapsed:
                 for username in members:
                     acc_data = next((acc for acc in accounts_list if acc.get('username') == username), None)
                     if acc_data:
-                        self._insert_account_row(username, acc_data)
+                        desired_rows.append(self._build_row_dict(username, acc_data))
+
+        self._update_listbox_flicker_free(desired_rows)
         self._schedule_active_instance_indicator_sync()
+
+    def _build_row_dict(self, username, data):
+        return {
+            "text": " " * 45,
+            "fg": self.FG_TEXT,
+            "bg": self.BG_DARK,
+            "selectbg": self.FG_ACCENT,
+            "selectfg": self.FG_TEXT,
+            "row_map": ("account", username)
+        }
+
+    def _update_listbox_flicker_free(self, desired_rows):
+        current_size = self.account_list.size()
+        desired_size = len(desired_rows)
+        
+        self._list_row_map = [row["row_map"] for row in desired_rows]
+        
+        if current_size != desired_size:
+            self.account_list.delete(0, tk.END)
+            for i, row in enumerate(desired_rows):
+                self.account_list.insert(tk.END, row["text"])
+                self.account_list.itemconfig(
+                    i,
+                    fg=row.get("fg", ""),
+                    bg=row.get("bg", ""),
+                    selectforeground=row.get("selectfg", ""),
+                    selectbackground=row.get("selectbg", "")
+                )
+        else:
+            for i, row in enumerate(desired_rows):
+                current_text = self.account_list.get(i)
+                desired_text = row["text"]
+                if current_text != desired_text:
+                    self.account_list.delete(i)
+                    self.account_list.insert(i, desired_text)
+                
+                curr_fg = self.account_list.itemcget(i, "fg")
+                curr_bg = self.account_list.itemcget(i, "bg")
+                curr_selfg = self.account_list.itemcget(i, "selectforeground")
+                curr_selbg = self.account_list.itemcget(i, "selectbackground")
+                
+                tgt_fg = row.get("fg", "")
+                tgt_bg = row.get("bg", "")
+                tgt_selfg = row.get("selectfg", "")
+                tgt_selbg = row.get("selectbg", "")
+                
+                style_kwargs = {}
+                if curr_fg != tgt_fg:
+                    style_kwargs["fg"] = tgt_fg
+                if curr_bg != tgt_bg:
+                    style_kwargs["bg"] = tgt_bg
+                if curr_selfg != tgt_selfg:
+                    style_kwargs["selectforeground"] = tgt_selfg
+                if curr_selbg != tgt_selbg:
+                    style_kwargs["selectbackground"] = tgt_selbg
+                    
+                if style_kwargs:
+                    self.account_list.itemconfig(i, **style_kwargs)
 
     def edit_account_note(self):
         def worker():
@@ -110,14 +168,13 @@ class RefactoredAccountManagerUI(AccountManagerUI):
         self._active_instance_indicator_sync_after = None
         if not hasattr(self, "account_list") or not self.account_list.winfo_exists():
             return
-        self._clear_active_instance_indicators()
+        
         active_usernames = getattr(self, "_active_instance_usernames", set()) or set()
         normal_bg = self.account_list.cget("bg")
         selected_bg = self.account_list.cget("selectbackground")
-        item_height = 22
-        first_visible = self.account_list.nearest(0)
         
         accounts_list = getattr(self.manager, "accounts_cache", [])
+        needed_keys = set()
         
         for index, (kind, username) in enumerate(self._list_row_map):
             if kind != "account":
@@ -126,21 +183,30 @@ class RefactoredAccountManagerUI(AccountManagerUI):
             if not bbox:
                 continue
             x, y_bbox, width, height = bbox
-            y = (index - first_visible) * item_height
             row_bg = selected_bg if self.account_list.selection_includes(index) else normal_bg
             
             if username.lower() in active_usernames:
-                dot = tk.Canvas(
-                    self.account_list,
-                    width=8,
-                    height=8,
-                    bg=row_bg,
-                    highlightthickness=0,
-                    bd=0
-                )
-                dot.create_oval(0, 0, 7, 7, fill="#3DDC84", outline="#2FAF67")
-                dot.place(x=12, y=y + (item_height - 8) // 2)
-                self._active_instance_indicators[f"active_{username}_{index}"] = dot
+                dot_key = f"active_{username}_{index}"
+                needed_keys.add(dot_key)
+                existing_dot = self._active_instance_indicators.get(dot_key)
+                if existing_dot and isinstance(existing_dot, tk.Canvas) and existing_dot.winfo_exists():
+                    existing_dot.config(bg=row_bg)
+                    existing_dot.place(x=12, y=y_bbox + (height - 8) // 2)
+                else:
+                    if existing_dot:
+                        try: existing_dot.destroy()
+                        except: pass
+                    dot = tk.Canvas(
+                        self.account_list,
+                        width=8,
+                        height=8,
+                        bg=row_bg,
+                        highlightthickness=0,
+                        bd=0
+                    )
+                    dot.create_oval(0, 0, 7, 7, fill="#3DDC84", outline="#2FAF67")
+                    dot.place(x=12, y=y_bbox + (height - 8) // 2)
+                    self._active_instance_indicators[dot_key] = dot
                 
             acc_data = next((acc for acc in accounts_list if acc.get('username') == username), None)
             cookie_valid = None
@@ -174,29 +240,58 @@ class RefactoredAccountManagerUI(AccountManagerUI):
                 overlay_char = aging_indicator
                 
             if overlay_char:
-                lbl = tk.Label(
-                    self.account_list,
-                    text=overlay_char,
-                    fg=overlay_color,
-                    bg=row_bg,
-                    font=("Segoe UI", 9)
-                )
-                lbl.place(x=20, y=y + (item_height - 18) // 2)
-                self._active_instance_indicators[f"overlay_{username}_{index}"] = lbl
+                overlay_key = f"overlay_{username}_{index}"
+                needed_keys.add(overlay_key)
+                existing_overlay = self._active_instance_indicators.get(overlay_key)
+                if existing_overlay and isinstance(existing_overlay, tk.Label) and existing_overlay.winfo_exists():
+                    existing_overlay.config(text=overlay_char, fg=overlay_color, bg=row_bg)
+                    existing_overlay.place(x=20, y=y_bbox + (height - 18) // 2)
+                else:
+                    if existing_overlay:
+                        try: existing_overlay.destroy()
+                        except: pass
+                    lbl = tk.Label(
+                        self.account_list,
+                        text=overlay_char,
+                        fg=overlay_color,
+                        bg=row_bg,
+                        font=("Segoe UI", 9)
+                    )
+                    lbl.place(x=20, y=y_bbox + (height - 18) // 2)
+                    self._active_instance_indicators[overlay_key] = lbl
 
             label_text = username
             if note:
                 label_text += f" \u2022 {note}"
             
-            lbl_name = tk.Label(
-                self.account_list,
-                text=label_text,
-                fg=overlay_color if cookie_valid is False else self.FG_TEXT,
-                bg=row_bg,
-                font=("Segoe UI", 10)
-            )
-            lbl_name.place(x=32, y=y + (item_height - 20) // 2)
-            self._active_instance_indicators[f"name_{username}_{index}"] = lbl_name
+            name_key = f"name_{username}_{index}"
+            needed_keys.add(name_key)
+            tgt_fg = overlay_color if cookie_valid is False else self.FG_TEXT
+            existing_name = self._active_instance_indicators.get(name_key)
+            if existing_name and isinstance(existing_name, tk.Label) and existing_name.winfo_exists():
+                existing_name.config(text=label_text, fg=tgt_fg, bg=row_bg)
+                existing_name.place(x=32, y=y_bbox + (height - 20) // 2)
+            else:
+                if existing_name:
+                    try: existing_name.destroy()
+                    except: pass
+                lbl_name = tk.Label(
+                    self.account_list,
+                    text=label_text,
+                    fg=tgt_fg,
+                    bg=row_bg,
+                    font=("Segoe UI", 10)
+                )
+                lbl_name.place(x=32, y=y_bbox + (height - 20) // 2)
+                self._active_instance_indicators[name_key] = lbl_name
+
+        for key in list(self._active_instance_indicators.keys()):
+            if key not in needed_keys:
+                widget = self._active_instance_indicators.pop(key)
+                try:
+                    widget.destroy()
+                except:
+                    pass
 
     def _update_active_instance_indicators(self):
         self._sync_active_instance_indicators()

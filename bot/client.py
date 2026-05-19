@@ -73,6 +73,11 @@ class DiscordBot:
         self.thread = None
 
     def _send_callback(self, url, headers, payload):
+        if "interactions/prefix_msg/" in url:
+            channel_id = url.split("interactions/prefix_msg/")[1].split("/")[0]
+            bot_token = headers.get("Authorization", "").replace("Bot ", "").strip()
+            self._send_prefix_response(channel_id, bot_token, payload)
+            return
         def do_post():
             try:
                 res = requests.post(url, headers=headers, json=payload, timeout=5)
@@ -83,6 +88,10 @@ class DiscordBot:
         threading.Thread(target=do_post, daemon=True).start()
 
     def _send_followup(self, app_id, token, payload):
+        if token and token.isdigit():
+            bot_token = self.ui.settings.get("discord_bot_token", "").strip()
+            self._send_prefix_response(token, bot_token, payload)
+            return
         def do_post():
             try:
                 url = f"https://discord.com/api/v10/webhooks/{app_id}/{token}"
@@ -92,6 +101,94 @@ class DiscordBot:
             except Exception as e:
                 print(f"[ERROR] Discord API followup connection failed: {e}")
         threading.Thread(target=do_post, daemon=True).start()
+
+    def _send_prefix_response(self, channel_id, token, payload):
+        try:
+            headers = {
+                "Authorization": f"Bot {token}",
+                "Content-Type": "application/json"
+            }
+            data = payload
+            if "data" in payload:
+                data = payload["data"]
+            if payload.get("type") == 5:
+                return
+            content = data.get("content", "")
+            embeds = data.get("embeds", [])
+            components = data.get("components", [])
+            if not content and not embeds:
+                return
+            post_payload = {}
+            if content:
+                post_payload["content"] = content
+            if embeds:
+                post_payload["embeds"] = embeds
+            if components:
+                post_payload["components"] = components
+            url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
+            def do_post():
+                try:
+                    res = requests.post(url, headers=headers, json=post_payload, timeout=5)
+                    if res.status_code not in (200, 201, 204):
+                        print(f"[ERROR] Prefix response rejected ({res.status_code}): {res.text}")
+                except Exception as e:
+                    print(f"[ERROR] Prefix response connection failed: {e}")
+            threading.Thread(target=do_post, daemon=True).start()
+        except Exception as e:
+            print(f"[ERROR] Failed to send prefix response: {e}")
+
+    def _commands_need_sync(self, local_cmds, registered_cmds):
+        if len(local_cmds) != len(registered_cmds):
+            return True
+        reg_map = {c["name"]: c for c in registered_cmds}
+        for lc in local_cmds:
+            rc = reg_map.get(lc["name"])
+            if not rc:
+                return True
+            if lc.get("description") != rc.get("description"):
+                return True
+            local_opts = lc.get("options", [])
+            reg_opts = rc.get("options", [])
+            if len(local_opts) != len(reg_opts):
+                return True
+            for lo, ro in zip(local_opts, reg_opts):
+                if lo.get("name") != ro.get("name") or lo.get("description") != ro.get("description") or lo.get("type") != ro.get("type") or lo.get("required", False) != ro.get("required", False):
+                    return True
+                local_choices = lo.get("choices", [])
+                reg_choices = ro.get("choices", [])
+                if len(local_choices) != len(reg_choices):
+                    return True
+                for lch, rch in zip(local_choices, reg_choices):
+                    if lch.get("name") != rch.get("name") or lch.get("value") != rch.get("value"):
+                        return True
+        return False
+
+    def _parse_prefix_args(self, command_name, parts):
+        commands = get_commands_definition()
+        cmd_def = next((c for c in commands if c["name"] == command_name), None)
+        if not cmd_def:
+            return {}
+        options = cmd_def.get("options", [])
+        parsed_options = []
+        args = parts[1:]
+        for idx, opt in enumerate(options):
+            if idx < len(args):
+                val = args[idx]
+                opt_type = opt.get("type")
+                if opt_type == 4:
+                    try:
+                        val = int(val)
+                    except:
+                        pass
+                elif opt_type == 5:
+                    val = val.lower() in ("true", "1", "yes", "enable", "on")
+                parsed_options.append({
+                    "name": opt["name"],
+                    "value": val
+                })
+            elif opt.get("required", False):
+                return None
+        return parsed_options
 
     def _send_webhook_embed(self, title, description, color, fields=None):
         webhook_url = self.ui.settings.get("discord_webhook", {}).get("url", "").strip()
@@ -208,9 +305,6 @@ class DiscordBot:
             pass
 
     async def _register_slash_commands(self, application_id, token):
-        if "--sync" not in sys.argv:
-            print("[INFO] Discord slash commands loaded locally (use --sync on launch to register new commands)")
-            return
         try:
             url = f"https://discord.com/api/v10/applications/{application_id}/commands"
             headers = {
@@ -218,22 +312,36 @@ class DiscordBot:
                 "Content-Type": "application/json"
             }
             commands = get_commands_definition()
-            res = requests.put(url, headers=headers, json=commands, timeout=5)
-            if res.status_code == 429:
-                try:
-                    retry_after = res.json().get("retry_after", 5.0)
-                except:
-                    retry_after = 5.0
-                print(f"[WARNING] Discord command sync rate-limited. Retry after {retry_after}s.")
-                return
-            print(f"[INFO] Global command registration status: {res.status_code}")
-            if res.status_code not in (200, 201):
-                print(f"[ERROR] Global registry rejected: {res.text}")
+            
+            need_sync = "--sync" in sys.argv
+            if not need_sync:
+                res_get = requests.get(url, headers=headers, timeout=5)
+                if res_get.status_code == 200:
+                    registered = res_get.json()
+                    need_sync = self._commands_need_sync(commands, registered)
+                else:
+                    need_sync = True
+
+            if need_sync:
+                print("[INFO] Registering Discord slash commands globally...")
+                res = requests.put(url, headers=headers, json=commands, timeout=5)
+                if res.status_code == 429:
+                    try:
+                        retry_after = res.json().get("retry_after", 5.0)
+                    except:
+                        retry_after = 5.0
+                    print(f"[WARNING] Discord command sync rate-limited. Retry after {retry_after}s.")
+                    return
+                print(f"[INFO] Global command registration status: {res.status_code}")
+                if res.status_code not in (200, 201):
+                    print(f"[ERROR] Global registry rejected: {res.text}")
+            else:
+                print("[INFO] Discord slash commands are already up-to-date globally.")
         except Exception as e:
             print(f"[ERROR] Global registry exception: {e}")
 
     async def _sync_guild_slash_commands(self, application_id, token, guild_id):
-        if not guild_id or "--sync" not in sys.argv:
+        if not guild_id:
             return
         try:
             url = f"https://discord.com/api/v10/applications/{application_id}/guilds/{guild_id}/commands"
@@ -241,16 +349,35 @@ class DiscordBot:
                 "Authorization": f"Bot {token}",
                 "Content-Type": "application/json"
             }
-            res = requests.put(url, headers=headers, json=[], timeout=5)
-            if res.status_code == 429:
-                try:
-                    retry_after = res.json().get("retry_after", 5.0)
-                except:
-                    retry_after = 5.0
-                print(f"[WARNING] Discord command guild sync rate-limited. Retry after {retry_after}s.")
-                return
-        except:
-            pass
+            for attempt in range(3):
+                res_get = requests.get(url, headers=headers, timeout=5)
+                if res_get.status_code == 429:
+                    try:
+                        retry_after = res_get.json().get("retry_after", 5.0)
+                    except:
+                        retry_after = 5.0
+                    print(f"[WARNING] Discord guild command get rate-limited. Retrying in {retry_after}s... (attempt {attempt + 1}/3)")
+                    await asyncio.sleep(retry_after)
+                    continue
+                if res_get.status_code == 200:
+                    guild_cmds = res_get.json()
+                    if guild_cmds:
+                        print(f"[INFO] Clearing legacy guild-level commands for guild {guild_id}...")
+                        for put_attempt in range(3):
+                            res = requests.put(url, headers=headers, json=[], timeout=5)
+                            if res.status_code == 429:
+                                try:
+                                    retry_after = res.json().get("retry_after", 5.0)
+                                except:
+                                    retry_after = 5.0
+                                print(f"[WARNING] Discord guild command clear rate-limited. Retrying in {retry_after}s... (attempt {put_attempt + 1}/3)")
+                                await asyncio.sleep(retry_after)
+                                continue
+                            print(f"[INFO] Guild-level commands cleared status for guild {guild_id}: {res.status_code}")
+                            break
+                break
+        except Exception as e:
+            print(f"[ERROR] Guild command sync exception: {e}")
 
     async def _handle_message(self, d, token):
         try:
@@ -267,131 +394,57 @@ class DiscordBot:
             parts = content.split()
             if not parts:
                 return
-            command = parts[0].lower()
-            def send_reply(text):
-                try:
-                    headers = {
-                        "Authorization": f"Bot {token}",
-                        "Content-Type": "application/json"
-                    }
-                    url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
-                    requests.post(url, headers=headers, json={"content": text}, timeout=5)
-                except:
-                    pass
-            if command == "!launch":
-                if len(parts) < 3:
-                    send_reply("Usage: `!launch <username> <place_id>`")
-                    return
-                account_name = parts[1]
-                place_id = parts[2]
-                if account_name not in self.ui.manager.accounts:
-                    send_reply(f"Error: Account not found: `{account_name}`")
-                    return
-                send_reply(f"[INFO] Launching Roblox for {account_name}...")
-                self._send_activity_log(
-                    "[LAUNCH SEQUENCE]",
-                    f"Programmatic launcher initiated from chat command for account **{account_name}** into Place ID `{place_id}`.",
-                    0x95A5A6
-                )
-                launcher_pref, custom_launcher_path = self.ui._get_roblox_launcher_config()
-                def run_launch():
-                    try:
-                        self.ui.manager.launch_roblox(
-                            username=account_name,
-                            game_id=place_id,
-                            launcher_preference=launcher_pref,
-                            custom_launcher_path=custom_launcher_path
-                        )
-                        self._send_activity_log(
-                            "[LAUNCH SUCCESS]",
-                            f"Roblox account **{account_name}** launched successfully into Place ID `{place_id}`.",
-                            0x2ECC71
-                        )
-                    except Exception as le:
-                        self._send_activity_log(
-                            "[LAUNCH ERROR]",
-                            f"Launch sequence failed for account **{account_name}**: {le}",
-                            0xE74C3C
-                        )
-                threading.Thread(target=run_launch, daemon=True).start()
-            elif command == "!kill":
-                if len(parts) < 2:
-                    send_reply("Usage: `!kill <username>`")
-                    return
-                account_name = parts[1]
-                if account_name.lower() in ("all", "ram"):
-                    active_sessions = list(self.ui.instances_data)
-                    count = 0
-                    for entry in active_sessions:
-                        pid = entry.get("pid")
-                        if pid:
-                            try:
-                                subprocess.run(['taskkill', '/F', '/PID', str(pid)], creationflags=subprocess.CREATE_NO_WINDOW)
-                                count += 1
-                            except:
-                                pass
-                    send_reply(f"[SUCCESS] Terminated all {count} running Roblox client player tabs.")
-                    return
-                resolved_pid = None
-                for entry in list(self.ui.instances_data):
-                    if entry.get("username") == account_name:
-                        resolved_pid = entry.get("pid")
-                        break
-                if resolved_pid:
-                    try:
-                        import psutil
-                        if psutil.pid_exists(resolved_pid):
-                            subprocess.run(['taskkill', '/F', '/PID', str(resolved_pid)], creationflags=subprocess.CREATE_NO_WINDOW)
-                            try:
-                                proc = psutil.Process(resolved_pid)
-                                proc.terminate()
-                            except:
-                                pass
-                            send_reply(f"[SUCCESS] Process for {account_name} (PID: {resolved_pid}) terminated.")
-                        else:
-                            send_reply(f"Session for {account_name} was already offline.")
-                    except Exception as e:
-                        send_reply(f"Failed to terminate process for {account_name}: {e}")
-                else:
-                    send_reply(f"Session for {account_name} was already offline.")
-            elif command == "!status":
-                active_sessions = list(self.ui.instances_data)
-                if not active_sessions:
-                    send_reply("No active Roblox sessions running.")
-                    return
-                lines = ["**Active Roblox Sessions:**"]
-                for entry in active_sessions:
-                    create_time = entry.get("create_time", 0.0)
-                    uptime_str = "00:00:00"
-                    if create_time:
-                        try:
-                            elapsed = int(time.time() - create_time)
-                            h = elapsed // 3600
-                            m = (elapsed % 3600) // 60
-                            s = elapsed % 60
-                            uptime_str = f"{h:02d}:{m:02d}:{s:02d}"
-                        except:
-                            pass
-                    lines.append(
-                        f"• **{entry.get('username', 'Unknown')}** (PID: `{entry.get('pid')}`) | Game ID: `{entry.get('place_id', 'Unknown')}` | Uptime: `{uptime_str}`"
-                    )
-                send_reply("\n".join(lines))
-            elif command == "!help":
-                help_text = (
-                    "**Roblox Account Manager Chat Commands Help Directory:**\n\n"
-                    "• **!launch <username> <place_id>**\n"
-                    "  *Use Case*: Programmatically launches a specific Roblox account into the specified Place ID.\n\n"
-                    "• **!kill <username | all>**\n"
-                    "  *Use Case*: Force-closes Roblox players. Type username to terminate just that player, or 'all' to close all Roblox client player tabs.\n\n"
-                    "• **!status**\n"
-                    "  *Use Case*: Returns a list of all active game player sessions, including PIDs, running Place IDs, and precise uptimes.\n\n"
-                    "• **!help**\n"
-                    "  *Use Case*: Shows this beautiful commands cheat-sheet and usage directory.\n\n"
-                    "*(Note: You can also use Slash Commands like `/admin_abuse`, `/free_memory`, `/accounts`, `/join`, `/kill`, `/antiafk`, `/settings`, `/addaccount`, `/list`, `/status`, and `/help` directly in Discord!)*"
-                )
-                send_reply(help_text)
-        except:
-            pass
+            command_name = parts[0][1:].lower()
+            
+            commands = get_commands_definition()
+            cmd_def = next((c for c in commands if c["name"] == command_name), None)
+            
+            if not cmd_def and command_name == "launch":
+                cmd_def = next((c for c in commands if c["name"] == "join"), None)
+                
+            if not cmd_def:
+                return
+                
+            parsed_opts = self._parse_prefix_args(cmd_def["name"], parts)
+            if parsed_opts is None:
+                options = cmd_def.get("options", [])
+                usage_parts = []
+                for opt in options:
+                    if opt.get("required", False):
+                        usage_parts.append(f"<{opt['name']}>")
+                    else:
+                        usage_parts.append(f"[{opt['name']}]")
+                usage = f"Usage: `!{command_name} " + " ".join(usage_parts) + "`"
+                
+                headers = {
+                    "Authorization": f"Bot {token}",
+                    "Content-Type": "application/json"
+                }
+                url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
+                requests.post(url, headers=headers, json={"content": usage}, timeout=5)
+                return
+            
+            mock_d = {
+                "type": 2,
+                "id": "prefix_msg",
+                "token": channel_id,
+                "application_id": None,
+                "user": {"id": author_id},
+                "member": {"user": {"id": author_id}},
+                "data": {
+                    "name": cmd_def["name"],
+                    "options": parsed_opts
+                }
+            }
+            
+            headers = {
+                "Authorization": f"Bot {token}",
+                "Content-Type": "application/json"
+            }
+            
+            await handle_interaction(self, cmd_def["name"], mock_d, token, headers, None, "prefix_msg", channel_id)
+        except Exception as e:
+            print(f"[ERROR] Prefix command dispatch error: {e}")
 
     async def _handle_interaction(self, d, token, application_id):
         try:

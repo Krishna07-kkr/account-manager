@@ -770,83 +770,21 @@ class RobloxAccountManager:
         proxy = self.accounts[username].get('proxy', '')
         return RobloxAPI.validate_account(username, cookie, proxy=proxy)
     
-    # def launch_home(self, username):
-    #     """Launch Chrome to Roblox home with account logged in"""
-    #     if username not in self.accounts:
-    #         print(f"[ERROR] Account '{username}' not found")
-    #         return False
         
-    #     cookie = self.accounts[username]['cookie']
         
-    #     try:
             
-    #         print(f"Launching Chrome for {username}...")
             
-    #         chrome_options = Options()
-    #         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-    #         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation", "enable-logging"])
-    #         chrome_options.add_experimental_option('useAutomationExtension', False)
             
-    #         chrome_options.add_argument("--log-level=3")
-    #         chrome_options.add_argument("--silent")
-    #         chrome_options.add_argument("--disable-logging")
-    #         chrome_options.add_argument("--disable-gpu")
-    #         chrome_options.add_argument("--disable-dev-shm-usage")
-    #         chrome_options.add_argument("--no-sandbox")
-    #         chrome_options.add_argument("--disable-usb")
-    #         chrome_options.add_argument("--disable-device-discovery-notifications")
             
-    #         original_stderr = sys.stderr
-    #         sys.stderr = open(os.devnull, 'w')
             
-    #         service = Service(ChromeDriverManager().install(), log_path=os.devnull)
-    #         driver = webdriver.Chrome(service=service, options=chrome_options)
             
-    #         driver.set_page_load_timeout(120)
-    #         driver.implicitly_wait(10)
             
-    #         sys.stderr.close()
-    #         sys.stderr = original_stderr
             
-    #         max_retries = 3
-    #         for retry in range(max_retries):
-    #             try:
-    #                 driver.get("https://www.roblox.com/")
-    #                 time.sleep(1)
-    #                 break
-    #             except Exception as nav_error:
-    #                 if retry < max_retries - 1:
-    #                     print(f"[WARNING] Navigation attempt {retry + 1} failed, retrying...")
-    #                     time.sleep(2)
-    #                 else:
-    #                     raise nav_error
             
-    #         driver.add_cookie({
-    #             'name': '.ROBLOSECURITY',
-    #             'value': cookie,
-    #             'domain': '.roblox.com',
-    #             'path': '/',
-    #             'secure': True,
-    #             'httpOnly': True
-    #         })
             
-    #         driver.get("https://www.roblox.com/home")
             
-    #         driver.execute_cdp_cmd('Page.setWebLifecycleState', {'state': 'active'})
             
-    #         print(f"[SUCCESS] Chrome launched with {username} logged in!")
-    #         return True
             
-    #     except Exception as e:
-    #         if 'original_stderr' in locals():
-    #             sys.stderr = original_stderr
-    #         print(f"[ERROR] Failed to launch Chrome: {e}")
-    #         try:
-    #             if 'driver' in locals():
-    #                 driver.quit()
-    #         except:
-    #             pass
-    #         return False
     
     def launch_roblox(self, username, game_id, private_server_id="", launcher_preference="default", job_id="", custom_launcher_path=""):
         """Launch Roblox game with specified account"""
@@ -854,7 +792,6 @@ class RobloxAccountManager:
             print(f"[ERROR] Account '{username}' not found")
             return False
         
-        # Update last_use timestamp and save
         self.accounts[username]['last_use'] = time.strftime('%Y-%m-%d %H:%M:%S')
         self.save_accounts()
         
@@ -894,13 +831,11 @@ class RobloxAccountManager:
         try:
             print(f"[INFO] Attempting to rotate session cookie for {username}...")
             
-            # 1. Get a fresh X-CSRF-TOKEN
             csrf_token = RobloxAPI.get_csrf_token(cookie, proxy=proxy)
             if not csrf_token:
                 print(f"[ERROR] Failed to get CSRF token for {username} rotation")
                 return False, None
                 
-            # 2. Make request to signoutfromallsessionsandreauthenticate
             url = "https://www.roblox.com/authentication/signoutfromallsessionsandreauthenticate"
             headers = {
                 'X-CSRF-TOKEN': csrf_token,
@@ -920,7 +855,6 @@ class RobloxAccountManager:
             
             response = requests.post(url, headers=headers, cookies=cookies, proxies=req_proxies, timeout=10)
             
-            # 3. Extract the new cookie from set-cookie header or response cookies
             new_cookie = None
             set_cookie_header = response.headers.get('set-cookie', '')
             match = re.search(r'\.ROBLOSECURITY=([^;]+)', set_cookie_header)
@@ -938,7 +872,6 @@ class RobloxAccountManager:
                 return True, new_cookie
             else:
                 print(f"[WARNING] Cookie rotation endpoint called but no new cookie was returned for {username}. Status code: {response.status_code}")
-                # Validate the account to see if the session was invalidated completely
                 is_valid = RobloxAPI.validate_account(username, cookie, proxy=proxy)
                 if not is_valid:
                     self.accounts[username]['cookie_valid'] = False

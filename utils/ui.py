@@ -45,7 +45,7 @@ from urllib.request import urlretrieve
 import autoit
 from classes.roblox_api import RobloxAPI
 from classes.account_manager import RobloxAccountManager
-from classes.discord_bot import DiscordBot
+from bot.client import DiscordBot
 from classes.summary_service import AccountSummaryService
 from utils.encryption_setup import EncryptionSetupUI
 from utils.theme_manager import ThemeManager
@@ -450,7 +450,6 @@ class AccountManagerUI:
         
         threading.Thread(target=self.check_for_updates, daemon=True).start()
         threading.Thread(target=self._silent_check_cookies_worker, daemon=True).start()
-        # Start cookie refresh heartbeat timer (initially in 10s, then repeating every 5 mins)
         self.root.after(10000, self.auto_cookie_refresh_heartbeat)
         
         if self.settings.get("lock_roblox_settings", False):
@@ -476,12 +475,10 @@ class AccountManagerUI:
         self.start_instances_monitoring()
         self.start_dashboard_report_automation()
         
-        # Initialize zero-dependency Discord RPC and apply graphics settings
         try:
             from classes.roblox_api import RobloxAPI
             RobloxAPI.apply_graphics_optimization(self.settings.get("graphics_optimizer_enabled", False))
             
-            # Automatically convert local icon.ico to icon.png if it does not exist
             try:
                 if not os.path.exists("icon.png") and os.path.exists("icon.ico"):
                     from PIL import Image
@@ -498,10 +495,9 @@ class AccountManagerUI:
                 
                 def rpc_worker():
                     import psutil
-                    time.sleep(5) # Let app load first
+                    time.sleep(5)
                     while True:
                         try:
-                            # Break the loop if disabled dynamically
                             if not self.settings.get("discord_rpc_enabled", True):
                                 break
                                 
@@ -2827,7 +2823,6 @@ del /f /q "%~f0"
                     getattr(self, '_active_instance_usernames', set()) and 
                     username.lower() in self._active_instance_usernames)
         
-        # Calculate aging indicator
         aging_indicator = ""
         if isinstance(data, dict) and cookie_valid is not False:
             last_use_str = data.get('last_use')
@@ -2937,7 +2932,6 @@ del /f /q "%~f0"
             username_part = username_part[2:]
         if username_part.startswith('⚠ '):
             username_part = username_part[2:]
-        # Strip aging indicator emojis if present
         for emoji in ['🟡', '🟠', '🔴']:
             if username_part.startswith(emoji + ' '):
                 username_part = username_part[len(emoji)+1:]
@@ -3204,7 +3198,6 @@ del /f /q "%~f0"
                     if not isinstance(account_data, dict):
                         continue
                         
-                    # Check auto refresh toggle
                     no_refresh = account_data.get("no_cookie_refresh", "false") == "true"
                     if no_refresh:
                         continue
@@ -3212,7 +3205,6 @@ del /f /q "%~f0"
                     last_use_str = account_data.get("last_use")
                     last_refresh_str = account_data.get("last_attempted_refresh")
                     
-                    # Parse last_use (format YYYY-MM-DD HH:MM:SS)
                     last_use_time = None
                     if last_use_str:
                         try:
@@ -3220,7 +3212,6 @@ del /f /q "%~f0"
                         except:
                             pass
                     
-                    # Parse last_refresh (format YYYY-MM-DD HH:MM:SS)
                     last_refresh_time = None
                     if last_refresh_str:
                         try:
@@ -3235,13 +3226,11 @@ del /f /q "%~f0"
                     idle_days = (now - last_use_epoch) / 86400.0
                     days_since_refresh = (now - last_refresh_epoch) / 86400.0
                     
-                    # If idle for > 20 days and hasn't had a refresh attempted in 7 days
                     if idle_days > 20 and days_since_refresh >= 7:
                         print(f"[Heartbeat] Account '{username}' is idle ({idle_days:.1f} days) and due for cookie rotation...")
                         account_data["last_attempted_refresh"] = time.strftime('%Y-%m-%d %H:%M:%S')
                         self.manager.save_accounts()
                         
-                        # Execute cookie rotation
                         success, new_cookie = self.manager.rotate_cookie_session(username)
                         if success:
                             self._save_cookie_status(username, True)
@@ -3250,7 +3239,6 @@ del /f /q "%~f0"
                         else:
                             print(f"[Heartbeat] Failed to rotate session cookie for: {username}")
                         
-                        # Small delay to avoid rate limiting
                         time.sleep(5)
                 
                 if refreshed_any:
@@ -3258,10 +3246,8 @@ del /f /q "%~f0"
             except Exception as e:
                 print(f"[Heartbeat Error] Error running auto cookie refresh: {e}")
             finally:
-                # Re-schedule the heartbeat in 5 minutes (300000 ms)
                 self.root.after(300000, self.auto_cookie_refresh_heartbeat)
 
-        # Run in a background thread to prevent UI freezing
         threading.Thread(target=run_refresh, daemon=True).start()
     
     def on_drag_start(self, event):
@@ -4261,7 +4247,6 @@ del /f /q "%~f0"
         )
         check_cookie_btn.pack(fill="x", padx=2, pady=1)
 
-        # Force Cookie Refresh (Manual Rotation)
         def force_refresh_cookie():
             self.hide_account_context_menu()
             print(f"[INFO] Manually rotating/refreshing cookie session for {username}...")
@@ -4306,7 +4291,6 @@ del /f /q "%~f0"
         )
         force_refresh_btn.pack(fill="x", padx=2, pady=1)
 
-        # Toggle Periodic Cookie Refresh for this account
         no_refresh_status = account.get('no_cookie_refresh', 'false') == 'true'
         toggle_text = "Enable Auto Refresh" if no_refresh_status else "Disable Auto Refresh"
         
@@ -4334,7 +4318,6 @@ del /f /q "%~f0"
         )
         toggle_refresh_btn.pack(fill="x", padx=2, pady=1)
         
-        # Set/Edit Proxy
         def edit_proxy():
             self.hide_account_context_menu()
             from tkinter import simpledialog
@@ -7831,7 +7814,6 @@ del /f /q "%~f0"
         bot_auth_entry.bind("<FocusOut>", lambda e: _bot_save())
         bot_auth_entry.bind("<Return>", lambda e: _bot_save())
 
-        # Discord Rich Presence (RPC) Section
         sep2 = ttk.Frame(dc_frame, style="Dark.TFrame", height=1)
         sep2.pack(fill="x", pady=(15, 12))
         sep2.configure(relief="solid", borderwidth=1)
@@ -7853,12 +7835,11 @@ del /f /q "%~f0"
             self.settings["discord_rpc_enabled"] = rpc_enabled_var.get()
             cid = rpc_client_id_var.get().strip()
             if not cid:
-                cid = "1240954157790367804" # restore default
+                cid = "1240954157790367804"
                 rpc_client_id_var.set(cid)
             self.settings["discord_rpc_client_id"] = cid
             self.save_settings()
             
-            # Dynamically re-initialize or close RPC based on settings
             if hasattr(self, 'discord_rpc'):
                 try:
                     self.discord_rpc.close()
@@ -7869,7 +7850,6 @@ del /f /q "%~f0"
                     from utils.discord_rpc import DiscordRPC
                     self.discord_rpc = DiscordRPC(client_id=cid)
                     
-                    # Start fresh worker
                     def rpc_worker():
                         import psutil
                         time.sleep(1)

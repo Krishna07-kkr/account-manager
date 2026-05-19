@@ -30,6 +30,8 @@ AccountManagerData/**
 .idea/
 graphify-out/
 .agent/
+.agents/
+scratch/
 *.swp
 *.swo
 *~
