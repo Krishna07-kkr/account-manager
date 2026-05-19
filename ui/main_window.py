@@ -11,6 +11,7 @@ from bot.client import DiscordBot
 class RefactoredAccountManagerUI(AccountManagerUI):
     def __init__(self, root, manager, icon_path=None, discord_logo_path=None):
         super().__init__(root, manager, icon_path, discord_logo_path)
+        self._desired_rows = []
         if hasattr(self, "discord_bot") and self.discord_bot:
             try:
                 self.discord_bot.stop()
@@ -49,11 +50,13 @@ class RefactoredAccountManagerUI(AccountManagerUI):
             grouped_usernames.update(members)
         
         accounts_list = getattr(self.manager, "accounts_cache", [])
+        account_idx = 0
         for account_data in accounts_list:
             username = account_data.get('username')
             if not username or username in grouped_usernames:
                 continue
-            desired_rows.append(self._build_row_dict(username, account_data))
+            desired_rows.append(self._build_row_dict(username, account_data, account_idx))
+            account_idx += 1
 
         for gname, members in groups.items():
             collapsed = gname in self._collapsed_groups
@@ -73,12 +76,13 @@ class RefactoredAccountManagerUI(AccountManagerUI):
                 for username in members:
                     acc_data = next((acc for acc in accounts_list if acc.get('username') == username), None)
                     if acc_data:
-                        desired_rows.append(self._build_row_dict(username, acc_data))
+                        desired_rows.append(self._build_row_dict(username, acc_data, account_idx))
+                        account_idx += 1
 
         self._update_listbox_flicker_free(desired_rows)
         self._schedule_active_instance_indicator_sync()
 
-    def _build_row_dict(self, username, data):
+    def _build_row_dict(self, username, data, account_idx=0):
         return {
             "text": " " * 45,
             "fg": self.FG_TEXT,
@@ -89,6 +93,7 @@ class RefactoredAccountManagerUI(AccountManagerUI):
         }
 
     def _update_listbox_flicker_free(self, desired_rows):
+        self._desired_rows = desired_rows
         current_size = self.account_list.size()
         desired_size = len(desired_rows)
         
@@ -163,6 +168,20 @@ class RefactoredAccountManagerUI(AccountManagerUI):
             selectforeground=self.FG_TEXT,
             selectbackground=self.FG_ACCENT
         )
+        desired_rows = getattr(self, "_desired_rows", [])
+        row_dict = {
+            "text": " " * 45,
+            "fg": self.FG_TEXT,
+            "bg": self.BG_DARK,
+            "selectbg": self.FG_ACCENT,
+            "selectfg": self.FG_TEXT,
+            "row_map": ("account", username)
+        }
+        if len(desired_rows) > idx:
+            desired_rows[idx] = row_dict
+        else:
+            desired_rows.append(row_dict)
+        self._desired_rows = desired_rows
 
     def _sync_active_instance_indicators(self):
         self._active_instance_indicator_sync_after = None
@@ -170,11 +189,11 @@ class RefactoredAccountManagerUI(AccountManagerUI):
             return
         
         active_usernames = getattr(self, "_active_instance_usernames", set()) or set()
-        normal_bg = self.account_list.cget("bg")
-        selected_bg = self.account_list.cget("selectbackground")
         
         accounts_list = getattr(self.manager, "accounts_cache", [])
         needed_keys = set()
+        
+        desired_rows = getattr(self, "_desired_rows", [])
         
         for index, (kind, username) in enumerate(self._list_row_map):
             if kind != "account":
@@ -183,7 +202,13 @@ class RefactoredAccountManagerUI(AccountManagerUI):
             if not bbox:
                 continue
             x, y_bbox, width, height = bbox
-            row_bg = selected_bg if self.account_list.selection_includes(index) else normal_bg
+            row_data = desired_rows[index] if index < len(desired_rows) else {}
+            if self.account_list.selection_includes(index):
+                row_bg = row_data.get("selectbg", "#0078D7")
+                row_fg = row_data.get("selectfg", "#ffffff")
+            else:
+                row_bg = row_data.get("bg", "#2b2b2b")
+                row_fg = row_data.get("fg", "#ffffff")
             
             if username.lower() in active_usernames:
                 dot_key = f"active_{username}_{index}"
@@ -232,7 +257,7 @@ class RefactoredAccountManagerUI(AccountManagerUI):
                             pass
             
             overlay_char = ""
-            overlay_color = self.FG_TEXT
+            overlay_color = row_fg
             if cookie_valid is False:
                 overlay_char = "\u26a0"
                 overlay_color = "#FFB347"
@@ -259,14 +284,14 @@ class RefactoredAccountManagerUI(AccountManagerUI):
                     )
                     lbl.place(x=20, y=y_bbox + (height - 18) // 2)
                     self._active_instance_indicators[overlay_key] = lbl
-
+ 
             label_text = username
             if note:
                 label_text += f" \u2022 {note}"
             
             name_key = f"name_{username}_{index}"
             needed_keys.add(name_key)
-            tgt_fg = overlay_color if cookie_valid is False else self.FG_TEXT
+            tgt_fg = overlay_color if cookie_valid is False else row_fg
             existing_name = self._active_instance_indicators.get(name_key)
             if existing_name and isinstance(existing_name, tk.Label) and existing_name.winfo_exists():
                 existing_name.config(text=label_text, fg=tgt_fg, bg=row_bg)

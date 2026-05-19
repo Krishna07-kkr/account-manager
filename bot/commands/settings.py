@@ -448,17 +448,31 @@ async def handle_interaction(bot, command_name, d, token, headers, resolved_app_
             })
             def run_import():
                 try:
-                    success = bot.ui.manager.import_cookie_account(cookie)
-                    if success:
+                    import re
+                    cookies = [c.strip() for c in re.split(r'[\s,\n\r]+', cookie) if c.strip()]
+                    success_count = 0
+                    failed_count = 0
+                    imported_users = []
+                    for c in cookies:
+                        success, username = bot.ui.manager.import_cookie_account(c)
+                        if success:
+                            success_count += 1
+                            imported_users.append(username)
+                        else:
+                            failed_count += 1
+                    if success_count > 0:
+                        desc = f"Successfully imported {success_count} account(s):\n" + "\n".join(f"- {u}" for u in imported_users)
+                        if failed_count > 0:
+                            desc += f"\n\nFailed to import {failed_count} cookie(s) (invalid or expired)."
                         bot._send_webhook_embed(
-                            "Roblox Profile Imported",
-                            "Roblox account profile cookie has been validated and imported successfully into Roblox Account Manager!",
+                            "Roblox Profiles Imported",
+                            desc,
                             0x2ECC71
                         )
                         bot._send_followup(resolved_app_id, interaction_token, {
                             "embeds": [{
-                                "title": "✓ Roblox Profile Imported",
-                                "description": "Roblox account profile cookie has been validated and imported successfully into Roblox Account Manager!",
+                                "title": "✓ Roblox Profiles Imported",
+                                "description": desc,
                                 "color": 0x2ECC71,
                                 "footer": {"text": "Roblox Account Manager | Profile Importer"},
                                 "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
@@ -467,13 +481,13 @@ async def handle_interaction(bot, command_name, d, token, headers, resolved_app_
                     else:
                         bot._send_webhook_embed(
                             "Profile Import Failed",
-                            "Attempted to import cookie profile but validation failed. Cookie may be invalid or expired.",
+                            f"Attempted to import {failed_count} cookie profile(s) but validation failed for all of them.",
                             0xE74C3C
                         )
                         bot._send_followup(resolved_app_id, interaction_token, {
                             "embeds": [{
                                 "title": "❌ Profile Import Failed",
-                                "description": "Attempted to import cookie profile but validation failed. The cookie may be invalid or expired.",
+                                "description": f"Attempted to import {failed_count} cookie profile(s) but validation failed. The cookies may be invalid or expired.",
                                 "color": 0xE74C3C,
                                 "footer": {"text": "Roblox Account Manager | Profile Importer"},
                                 "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
