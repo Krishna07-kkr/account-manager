@@ -6,6 +6,7 @@ import subprocess
 import requests
 import websockets
 import sys
+import psutil
 from .commands import get_commands_definition, handle_interaction
 from .commands.deployment import send_paginated_accounts, send_paginated_list_join
 
@@ -168,27 +169,49 @@ class DiscordBot:
         cmd_def = next((c for c in commands if c["name"] == command_name), None)
         if not cmd_def:
             return {}
-        options = cmd_def.get("options", [])
-        parsed_options = []
+        
         args = parts[1:]
-        for idx, opt in enumerate(options):
-            if idx < len(args):
-                val = args[idx]
+        
+        def parse_options_list(options, arg_list):
+            parsed = []
+            arg_idx = 0
+            for opt in options:
                 opt_type = opt.get("type")
-                if opt_type == 4:
-                    try:
-                        val = int(val)
-                    except:
-                        pass
-                elif opt_type == 5:
-                    val = val.lower() in ("true", "1", "yes", "enable", "on")
-                parsed_options.append({
-                    "name": opt["name"],
-                    "value": val
-                })
-            elif opt.get("required", False):
-                return None
-        return parsed_options
+                if opt_type == 1:  # SUB_COMMAND
+                    if arg_idx < len(arg_list) and arg_list[arg_idx].lower() == opt["name"].lower():
+                        arg_idx += 1
+                        sub_options = opt.get("options", [])
+                        sub_parsed = parse_options_list(sub_options, arg_list[arg_idx:])
+                        if sub_parsed is None:
+                            return None
+                        parsed.append({
+                            "name": opt["name"],
+                            "type": 1,
+                            "options": sub_parsed
+                        })
+                        return parsed
+                    elif opt.get("required", False):
+                        return None
+                else:
+                    if arg_idx < len(arg_list):
+                        val = arg_list[arg_idx]
+                        arg_idx += 1
+                        if opt_type == 4:  # INTEGER
+                            try:
+                                val = int(val)
+                            except:
+                                pass
+                        elif opt_type == 5:  # BOOLEAN
+                            val = val.lower() in ("true", "1", "yes", "enable", "on")
+                        parsed.append({
+                            "name": opt["name"],
+                            "value": val
+                        })
+                    elif opt.get("required", False):
+                        return None
+            return parsed
+
+        return parse_options_list(cmd_def.get("options", []), args)
 
     def _send_webhook_embed(self, title, description, color, fields=None):
         webhook_url = self.ui.settings.get("discord_webhook", {}).get("url", "").strip()
@@ -474,27 +497,42 @@ class DiscordBot:
                     selected_accounts_str = custom_id.split(":")[1]
                     selected_accounts = selected_accounts_str.split(",")
                     place_id = ""
+                    private_server = ""
                     components = d.get("data", {}).get("components", [])
                     for row in components:
                         for comp in row.get("components", []):
                             if comp.get("custom_id") == "place_input":
                                 place_id = comp.get("value", "").strip()
-                                break
+                            elif comp.get("custom_id") == "private_server_input":
+                                private_server = comp.get("value", "").strip()
+                    
+                    if not place_id and not private_server:
+                        url = f"https://discord.com/api/v10/interactions/{interaction_id}/{interaction_token}/callback"
+                        self._send_callback(url, headers, {
+                            "type": 4,
+                            "data": {
+                                "content": "[ERROR] You must specify either a Roblox Place ID or a Private Server Link/Code.",
+                                "flags": 64
+                            }
+                        })
+                        return
+
                     url = f"https://discord.com/api/v10/interactions/{interaction_id}/{interaction_token}/callback"
                     hook_ok = self._send_webhook_embed(
                         "Launch Sequence Initiated",
                         "Programmatic batch launch sequence started.",
                         0x95A5A6,
                         fields=[
-                            {"name": "🎮 Launch Mode", "value": "`PLACE_ID`", "inline": True},
-                            {"name": "📍 Target", "value": f"`{place_id}`", "inline": True},
+                            {"name": "🎮 Launch Mode", "value": "`PLACE_ID`" if place_id else "`PRIVATE_SERVER`", "inline": True},
+                            {"name": "📍 Target", "value": f"`{place_id or private_server}`", "inline": True},
                             {"name": "👥 Total Accounts", "value": f"**{len(selected_accounts)}**", "inline": True}
                         ]
                     )
+                    target_display = f"Place ID `{place_id}`" if place_id else f"Private Server `{private_server}`"
                     self._send_callback(url, headers, {
                         "type": 4,
                         "data": {
-                            "content": f"[INFO] Programmatic launch sequence started for {len(selected_accounts)} accounts into Place ID `{place_id}`! Details sent to Webhook." if hook_ok else f"[INFO] Programmatic launch sequence started for {len(selected_accounts)} accounts into Place ID `{place_id}`..."
+                            "content": f"[INFO] Programmatic launch sequence started for {len(selected_accounts)} accounts into {target_display}! Details sent to Webhook." if hook_ok else f"[INFO] Programmatic launch sequence started for {len(selected_accounts)} accounts into {target_display}..."
                         }
                     })
                     launcher_pref, custom_launcher_path = self.ui._get_roblox_launcher_config()
@@ -504,6 +542,7 @@ class DiscordBot:
                                 self.ui.manager.launch_roblox(
                                     username=account_name,
                                     game_id=place_id,
+                                    private_server_id=private_server,
                                     launcher_preference=launcher_pref,
                                     custom_launcher_path=custom_launcher_path
                                 )
@@ -536,7 +575,7 @@ class DiscordBot:
                         ]
                     )
                     self._send_followup(resolved_app_id, interaction_token, {
-                        "content": f"[SUCCESS] Finished launching {len(selected_accounts)} accounts into Place ID `{place_id}`! Details sent to Webhook." if hook_end else f"[SUCCESS] Finished launching {len(selected_accounts)} accounts into Place ID `{place_id}`!"
+                        "content": f"[SUCCESS] Finished launching {len(selected_accounts)} accounts into {target_display}! Details sent to Webhook." if hook_end else f"[SUCCESS] Finished launching {len(selected_accounts)} accounts into {target_display}!"
                     })
                 elif custom_id.startswith("interactive_join_modal:"):
                     parts = custom_id.split(":")
@@ -763,10 +802,25 @@ class DiscordBot:
                                             "custom_id": "place_input",
                                             "style": 1,
                                             "label": "Enter Roblox Place ID",
-                                            "min_length": 1,
+                                            "min_length": 0,
                                             "max_length": 30,
                                             "placeholder": "e.g. 185655138",
-                                            "required": True
+                                            "required": False
+                                        }
+                                    ]
+                                },
+                                {
+                                    "type": 1,
+                                    "components": [
+                                        {
+                                            "type": 4,
+                                            "custom_id": "private_server_input",
+                                            "style": 1,
+                                            "label": "Enter Private Server Link or Code",
+                                            "min_length": 0,
+                                            "max_length": 300,
+                                            "placeholder": "e.g. private server link/code",
+                                            "required": False
                                         }
                                     ]
                                 }

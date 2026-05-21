@@ -63,7 +63,7 @@ class ProcessWatcherService:
                                 pid_to_proc[pid] = persistent_procs[pid]
                     except (psutil.NoSuchProcess, psutil.AccessDenied):
                         continue
-                active_pids = set(new_pids)
+                active_pids = new_pids
                 for cached_pid in list(persistent_procs.keys()):
                     if cached_pid not in active_pids:
                         del persistent_procs[cached_pid]
@@ -85,7 +85,7 @@ class ProcessWatcherService:
                         try:
                             memory_mb = proc.info['memory_info'].rss / 1024 / 1024
                             create_time = proc.info['create_time']
-                        except:
+                        except Exception:
                             memory_mb = 0
                             create_time = 0
                         prev = old_data_by_pid.get(pid, {})
@@ -274,7 +274,7 @@ class ProcessWatcherService:
                                             self.manager.accounts[account]["user_id"] = str(uid)
                                             self.manager.save_accounts()
                                             return str(uid), None
-            except:
+            except Exception:
                 pass
             create_time_utc = datetime.fromtimestamp(process.create_time(), tz=timezone.utc).replace(tzinfo=None)
             logs_dir = os.path.join(os.getenv("LOCALAPPDATA"), "Roblox", "logs")
@@ -308,7 +308,7 @@ class ProcessWatcherService:
                         if user_id.isdigit():
                             used_logs.add(log_path)
                             return user_id, log_path
-                except:
+                except Exception:
                     continue
             return None, None
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):

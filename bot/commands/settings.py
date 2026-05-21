@@ -106,6 +106,25 @@ def get_definitions():
                     "required": False
                 }
             ]
+        },
+        {
+            "name": "set",
+            "description": "Set global configurations",
+            "options": [
+                {
+                    "name": "fps",
+                    "description": "Set the global Roblox framerate cap",
+                    "type": 1,
+                    "options": [
+                        {
+                            "type": 4,
+                            "name": "value",
+                            "description": "The target framerate cap (e.g., 60, 120, 144, 240)",
+                            "required": True
+                        }
+                    ]
+                }
+            ]
         }
     ]
 
@@ -561,5 +580,59 @@ async def handle_interaction(bot, command_name, d, token, headers, resolved_app_
                     )
             threading.Thread(target=run_selenium, daemon=True).start()
             return True
+
+    elif command_name == "set":
+        options = d["data"].get("options", [])
+        url = f"https://discord.com/api/v10/interactions/{interaction_id}/{interaction_token}/callback"
+        if options and options[0]["name"] == "fps":
+            sub_options = options[0].get("options", [])
+            if sub_options and sub_options[0]["name"] == "value":
+                fps_cap = int(sub_options[0]["value"])
+                from classes.roblox_api import RobloxAPI
+                
+                def run_fps_set():
+                    success = RobloxAPI.set_xml_framerate_cap(fps_cap)
+                    if success:
+                        bot._send_webhook_embed(
+                            "Roblox Framerate Cap Updated",
+                            f"Programmatically set Roblox global FramerateCap to `{fps_cap}` FPS.",
+                            0x2ECC71
+                        )
+                        bot._send_followup(resolved_app_id, interaction_token, {
+                            "embeds": [{
+                                "title": "✓ Roblox Framerate Cap Updated",
+                                "description": f"Roblox global framerate cap has been successfully set to **{fps_cap}** FPS in `GlobalBasicSettings_13.xml`.",
+                                "color": 0x2ECC71,
+                                "footer": {"text": "Roblox Account Manager | Settings Override"},
+                                "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+                            }]
+                        })
+                    else:
+                        bot._send_followup(resolved_app_id, interaction_token, {
+                            "embeds": [{
+                                "title": "❌ Framerate Cap Update Failed",
+                                "description": "Failed to modify `GlobalBasicSettings_13.xml`. See console logs for details.",
+                                "color": 0xE74C3C,
+                                "footer": {"text": "Roblox Account Manager | Settings Override"},
+                                "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+                            }]
+                        })
+                
+                # Acknowledge the interaction first
+                bot._send_callback(url, headers, {
+                    "type": 4,
+                    "data": {
+                        "embeds": [{
+                            "title": "⚙️ Modifying Roblox Settings",
+                            "description": f"Setting Roblox global FramerateCap to `{fps_cap}` FPS...",
+                            "color": 0xF1C40F,
+                            "footer": {"text": "Roblox Account Manager | Settings Override"}
+                        }]
+                    }
+                })
+                
+                threading.Thread(target=run_fps_set, daemon=True).start()
+                return True
+        return False
 
     return False

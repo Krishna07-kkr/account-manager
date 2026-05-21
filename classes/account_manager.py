@@ -30,7 +30,7 @@ from .roblox_api import RobloxAPI
 class RobloxAccountManager:
     
     def __init__(self, password=None):
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self.data_folder = "AccountManagerData"
         if not os.path.exists(self.data_folder):
             os.makedirs(self.data_folder)

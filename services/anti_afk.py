@@ -6,7 +6,7 @@ from ctypes import wintypes
 import win32gui
 import win32con
 import win32process
-import pyautoit as autoit
+import autoit
 
 class AntiAFKService:
     def __init__(self, config_manager, show_tooltip_callback=None, hide_tooltip_callback=None):
@@ -50,8 +50,6 @@ class AntiAFKService:
                     if self.show_tooltip:
                         self.show_tooltip(f"Anti-AFK Maintenance will start in {remaining}s")
                     if self.stop_event.wait(1):
-                        return
-                    if self.stop_event.is_set():
                         return
                 if self.hide_tooltip:
                     self.hide_tooltip()
@@ -104,7 +102,7 @@ class AntiAFKService:
                         100, 100, 0, 0,
                         win32con.SWP_NOSIZE | win32con.SWP_NOZORDER
                     )
-                except:
+                except Exception:
                     pass
                 try:
                     autoit.win_activate(window_spec)
@@ -129,7 +127,7 @@ class AntiAFKService:
                         win32con.SWP_NOSIZE | win32con.SWP_NOZORDER | win32con.SWP_NOACTIVATE
                     )
                     win32gui.ShowWindow(hwnd, 8)
-                except:
+                except Exception:
                     try:
                         autoit.win_minimize(window_spec)
                     except Exception:

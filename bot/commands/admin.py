@@ -20,16 +20,22 @@ def get_definitions():
                     "required": True
                 },
                 {
-                    "type": 3,
-                    "name": "place_id",
-                    "description": "Target Roblox experience Place ID",
-                    "required": True
-                },
-                {
                     "type": 4,
                     "name": "launch_delay",
                     "description": "Interval delay in seconds between launches",
                     "required": True
+                },
+                {
+                    "type": 3,
+                    "name": "place_id",
+                    "description": "Target Roblox experience Place ID",
+                    "required": False
+                },
+                {
+                    "type": 3,
+                    "name": "private_server",
+                    "description": "Private server Link or Code",
+                    "required": False
                 }
             ]
         },
@@ -74,11 +80,23 @@ def get_definitions():
 async def handle_interaction(bot, command_name, d, token, headers, resolved_app_id, interaction_id, interaction_token):
     if command_name == "admin_abuse":
         url = f"https://discord.com/api/v10/interactions/{interaction_id}/{interaction_token}/callback"
-        bot._send_callback(url, headers, {"type": 5})
         options = {o["name"]: o["value"] for o in d["data"].get("options", [])}
         fps_cap = int(options.get("fps_cap"))
-        place_id = str(options.get("place_id")).strip()
+        place_id = str(options.get("place_id", "")).strip()
+        private_server = str(options.get("private_server", "")).strip()
         launch_delay = int(options.get("launch_delay"))
+
+        if not place_id and not private_server:
+            bot._send_callback(url, headers, {
+                "type": 4,
+                "data": {
+                    "content": "[ERROR] You must specify either a Roblox Place ID or a Private Server Link/Code.",
+                    "flags": 64
+                }
+            })
+            return True
+
+        bot._send_callback(url, headers, {"type": 5})
         def run_admin_abuse():
             try:
                 terminated_count = 0
@@ -89,60 +107,20 @@ async def handle_interaction(bot, command_name, d, token, headers, resolved_app_
                             terminated_count += 1
                     except:
                         pass
-                local_appdata = os.getenv('LOCALAPPDATA')
-                if local_appdata:
-                    launcher_roots = ['Roblox', 'Bloxstrap', 'Fishstrap', 'Froststrap', 'Voidstrap']
-                    for root in launcher_roots:
-                        versions_dir = os.path.join(local_appdata, root, 'Versions')
-                        if os.path.exists(versions_dir):
-                            for item in os.listdir(versions_dir):
-                                item_path = os.path.join(versions_dir, item)
-                                if os.path.isdir(item_path) and os.path.exists(os.path.join(item_path, 'RobloxPlayerBeta.exe')):
-                                    client_settings_dir = os.path.join(item_path, 'ClientSettings')
-                                    if not os.path.exists(client_settings_dir):
-                                        os.makedirs(client_settings_dir)
-                                    settings_file = os.path.join(client_settings_dir, 'ClientAppSettings.json')
-                                    settings = {}
-                                    if os.path.exists(settings_file):
-                                        try:
-                                            with open(settings_file, 'r', encoding='utf-8') as f:
-                                                settings = json.load(f)
-                                        except:
-                                            pass
-                                    settings["DFIntTaskSchedulerTargetFps"] = fps_cap
-                                    try:
-                                        with open(settings_file, 'w', encoding='utf-8') as f:
-                                            json.dump(settings, f, indent=2)
-                                    except:
-                                        pass
-                        
-                        if root == 'Bloxstrap':
-                            mods_client_settings_dir = os.path.join(local_appdata, 'Bloxstrap', 'Modifications', 'ClientSettings')
-                            if not os.path.exists(mods_client_settings_dir):
-                                try:
-                                    os.makedirs(mods_client_settings_dir)
-                                except:
-                                    pass
-                            if os.path.exists(mods_client_settings_dir):
-                                mods_settings_file = os.path.join(mods_client_settings_dir, 'ClientAppSettings.json')
-                                settings = {}
-                                if os.path.exists(mods_settings_file):
-                                    try:
-                                        with open(mods_settings_file, 'r', encoding='utf-8') as f:
-                                            settings = json.load(f)
-                                    except:
-                                        pass
-                                settings["DFIntTaskSchedulerTargetFps"] = fps_cap
-                                try:
-                                    with open(mods_settings_file, 'w', encoding='utf-8') as f:
-                                        json.dump(settings, f, indent=2)
-                                except:
-                                    pass
+                try:
+                    from classes.roblox_api import RobloxAPI
+                    RobloxAPI.set_xml_framerate_cap(fps_cap)
+                except Exception as xmle:
+                    bot._send_webhook_embed(
+                        "Admin Abuse Warning",
+                        f"Failed to modify GlobalBasicSettings_13.xml: {xmle}",
+                        0xF1C40F
+                    )
                 all_accounts = list(bot.ui.manager.accounts.keys())
                 launcher_pref, custom_launcher_path = bot.ui._get_roblox_launcher_config()
                 bot._send_webhook_embed(
                     "Admin Abuse Execution Started",
-                    f"Terminated {terminated_count} active Roblox clients. Target FPS cap set to **{fps_cap}**. Commencing sequential launch of **{len(all_accounts)}** accounts into Place ID `{place_id}` with **{launch_delay}s** delay.",
+                    f"Terminated {terminated_count} active Roblox clients. Target FPS cap set to **{fps_cap}**. Commencing sequential launch of **{len(all_accounts)}** accounts into **{place_id or private_server}** with **{launch_delay}s** delay.",
                     0x95A5A6
                 )
                 for idx, account_name in enumerate(all_accounts):
@@ -150,6 +128,7 @@ async def handle_interaction(bot, command_name, d, token, headers, resolved_app_
                         bot.ui.manager.launch_roblox(
                             username=account_name,
                             game_id=place_id,
+                            private_server_id=private_server,
                             launcher_preference=launcher_pref,
                             custom_launcher_path=custom_launcher_path
                         )
@@ -178,7 +157,7 @@ async def handle_interaction(bot, command_name, d, token, headers, resolved_app_
                             "description": f"Sequential launch of **{len(all_accounts)}** accounts completed successfully under FPS Cap **{fps_cap}**.",
                             "color": 0x2ECC71,
                             "fields": [
-                                {"name": "🎮 Target Experience", "value": f"`{place_id}`", "inline": True},
+                                {"name": "🎮 Target Experience", "value": f"`{place_id or private_server}`", "inline": True},
                                 {"name": "⚡ Engine FPS Cap", "value": f"`{fps_cap} FPS`", "inline": True},
                                 {"name": "⏱️ Stagger Delay", "value": f"`{launch_delay} seconds`", "inline": True},
                                 {"name": "👥 Total Deployments", "value": f"**{len(all_accounts)}** accounts launched", "inline": False}

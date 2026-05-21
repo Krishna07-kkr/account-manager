@@ -1,52 +1,95 @@
+# ── Python build artifacts ────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
 
+# ── Virtual environments ──────────────────────────────────────────────────────
 env/
 venv/
 ENV/
 .venv/
 
+# ── Build / dist outputs ──────────────────────────────────────────────────────
 build/
 dist/
 *.spec
 *.spec.log
 
+# ── User credentials & local configurations ───────────────────────────────────
 saved_accounts.json
 config.json
+encryption_config.json
+keyauth_config.json
+license.enc
 
+# ── Certificate & key files ───────────────────────────────────────────────────
+*.key
+*.pem
+*.cert
+*.pfx
+*.p12
+*.kdbx
+*.pkcs12
+
+# ── Environment variables ─────────────────────────────────────────────────────
+.env
+.env.*
+*.env
+
+# ── Local database files ──────────────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+
+# ── Roblox Account Manager data directory (contains encrypted user data) ──────
 AccountManagerData/
 AccountManagerData/**
 
+# ── KeyAuth client credentials (never commit — distribute privately) ──────────
+services/keyauth_secure.py
+
+# ── Encrypted / backup / cookie files ────────────────────────────────────────
 *.dat
 *.enc
 *.backup
 *.cookies
 *.bak
 
+# ── IDE & editor configs ──────────────────────────────────────────────────────
 .vscode/
 .idea/
-graphify-out/
-.agent/
-.agents/
-scratch/
 *.swp
 *.swo
 *~
 
+# ── OS-generated files ────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
 desktop.ini
 
+# ── Logs & temporary files ────────────────────────────────────────────────────
 *.log
 *.tmp
 temp/
 tmp/
+logs/
+debug/
+
+# ── Test & coverage artifacts ─────────────────────────────────────────────────
 .pytest_cache/
 .coverage
 htmlcov/
-debug/
 
+# ── Agent / AI workspace directories ─────────────────────────────────────────
+.agent/
+.agents/
+graphify-out/
+scratch/
+
+# ── Bundled Windows utilities ─────────────────────────────────────────────────
 handle64.exe

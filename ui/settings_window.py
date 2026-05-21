@@ -90,6 +90,89 @@ def open_settings_window(self):
     developer_tab = ttk.Frame(tabs, style="Dark.TFrame")
     tabs.add(developer_tab, text="Developer")
     
+    license_tab = ttk.Frame(tabs, style="Dark.TFrame")
+    tabs.add(license_tab, text="Licensing")
+    
+    lic_frame = ttk.Frame(license_tab, style="Dark.TFrame")
+    lic_frame.pack(fill="both", expand=True, padx=20, pady=15)
+    
+    ttk.Label(
+        lic_frame,
+        text="KeyAuth License System",
+        style="Dark.TLabel",
+        font=(self.FONT_FAMILY, 11, "bold")
+    ).pack(anchor="w", pady=(0, 2))
+    
+    ttk.Label(
+        lic_frame,
+        text="Manage your application licensing configuration.",
+        style="Dark.TLabel",
+        font=(self.FONT_FAMILY, 8)
+    ).pack(anchor="w", pady=(0, 10))
+    
+    lic_sep = ttk.Frame(lic_frame, style="Dark.TFrame", height=1)
+    lic_sep.pack(fill="x", pady=(0, 8))
+    lic_sep.configure(relief="solid", borderwidth=1)
+    
+    from services.keyauth_secure import SecureKeyAuth
+    auth_manager = SecureKeyAuth()
+    
+    status_label_var = tk.StringVar()
+    
+    def update_license_status():
+        saved_key = auth_manager.load_license_key()
+        if saved_key:
+            masked = saved_key[:4] + "*" * (len(saved_key) - 4) if len(saved_key) > 4 else "****"
+            status_label_var.set(f"Status: 🟢 Active Key ({masked})")
+        else:
+            status_label_var.set("Status: 🔴 No Active Key")
+                
+    update_license_status()
+    
+    ttk.Label(
+        lic_frame,
+        textvariable=status_label_var,
+        style="Dark.TLabel",
+        font=(self.FONT_FAMILY, 10, "bold")
+    ).pack(anchor="w", pady=(5, 15))
+    
+    def revoke_license_key():
+        saved_key = auth_manager.load_license_key()
+        if not saved_key:
+            messagebox.showinfo("Info", "No active license key is currently stored.", parent=settings_window)
+            return
+        if messagebox.askyesno("Confirm Revocation", "Revoke the currently saved license key? The application will prompt for a key on the next launch.", parent=settings_window):
+            auth_manager.save_license_key("")
+            update_license_status()
+            messagebox.showinfo("Revoked", "Saved license key has been cleared.", parent=settings_window)
+
+    def change_license_key():
+        new_key = simpledialog.askstring("Change License Key", "Enter new license key:", parent=settings_window)
+        if new_key:
+            valid, msg = auth_manager.verify_license(new_key.strip())
+            if valid:
+                auth_manager.save_license_key(new_key.strip())
+                update_license_status()
+                messagebox.showinfo("Success", "License verified and updated successfully!", parent=settings_window)
+            else:
+                messagebox.showerror("Error", f"Invalid License Key: {msg}", parent=settings_window)
+
+    ttk.Button(
+        lic_frame,
+        text="Change/Verify License Key",
+        style="Dark.TButton",
+        command=change_license_key
+    ).pack(fill="x", pady=6)
+    
+    ttk.Button(
+        lic_frame,
+        text="Clear Saved License Key",
+        style="Dark.TButton",
+        command=revoke_license_key
+    ).pack(fill="x", pady=6)
+
+
+    
     dev_frame = ttk.Frame(developer_tab, style="Dark.TFrame")
     dev_frame.pack(fill="both", expand=True, padx=20, pady=15)
     
@@ -796,7 +879,12 @@ def open_settings_window(self):
         self.settings["graphics_optimizer_enabled"] = enabled
         self.save_settings()
         from classes.roblox_api import RobloxAPI
-        RobloxAPI.apply_graphics_optimization(enabled)
+        import threading
+        threading.Thread(
+            target=RobloxAPI.apply_graphics_optimization,
+            args=(enabled,),
+            daemon=True
+        ).start()
     
     graphics_opt_check = ttk.Checkbutton(
         roblox_frame,

@@ -24,6 +24,7 @@ import secrets
 import win32event
 import win32api
 import win32gui
+import win32con
 from datetime import datetime, timedelta, timezone
 import zipfile
 import tempfile
@@ -445,10 +446,9 @@ class AccountManagerUI:
             print("[Priority] Process priority successfully set to ABOVE_NORMAL_PRIORITY_CLASS.")
         except Exception as e:
             print(f"[Priority Error] Failed to set process priority: {e}")
-
+            
         self.root.after(50, self._process_ui_task_queue)
         
-        threading.Thread(target=self.check_for_updates, daemon=True).start()
         threading.Thread(target=self._silent_check_cookies_worker, daemon=True).start()
         self.root.after(10000, self.auto_cookie_refresh_heartbeat)
         
@@ -477,7 +477,11 @@ class AccountManagerUI:
         
         try:
             from classes.roblox_api import RobloxAPI
-            RobloxAPI.apply_graphics_optimization(self.settings.get("graphics_optimizer_enabled", False))
+            threading.Thread(
+                target=RobloxAPI.apply_graphics_optimization,
+                args=(self.settings.get("graphics_optimizer_enabled", False),),
+                daemon=True
+            ).start()
             
             try:
                 if not os.path.exists("icon.png") and os.path.exists("icon.ico"):
@@ -496,46 +500,52 @@ class AccountManagerUI:
                 def rpc_worker():
                     import psutil
                     time.sleep(5)
+                    _RPC_BUTTONS = [
+                        {"label": "🎮 Roblox Account Manager", "url": "https://github.com/ic3w0lf22/Roblox-Account-Manager"},
+                        {"label": "🔗 Join Discord Server", "url": "https://discord.gg/roblox"}
+                    ]
                     while True:
                         try:
                             if not self.settings.get("discord_rpc_enabled", True):
                                 break
-                                
                             active_users = []
                             if hasattr(self, '_active_instance_usernames'):
                                 active_users = list(self._active_instance_usernames)
-                            
                             cpu_val = psutil.cpu_percent()
                             mem_val = psutil.virtual_memory().percent
-                            
                             if active_users:
                                 raw_user = active_users[0]
                                 display_user = raw_user
-                                for key in list(self.manager.accounts.keys()):
+                                with self.manager._lock:
+                                    accounts_keys = list(self.manager.accounts.keys())
+                                for key in accounts_keys:
                                     if key.lower() == raw_user.lower():
                                         display_user = key
                                         break
-                                        
                                 self.discord_rpc.set_activity(
-                                    details=f"🎮 Running: {len(active_users)} client(s)",
+                                    details=f"🎮 Running {len(active_users)} client(s) · {display_user}",
                                     state=f"💻 CPU: {cpu_val:.0f}% | RAM: {mem_val:.0f}%",
                                     large_image="https://raw.githubusercontent.com/ic3w0lf22/Roblox-Account-Manager/master/RBX%20Alt%20Manager/Resources/Roblox%20Account%20Manager.png",
-                                    large_text="Account Manager by Nerd",
+                                    large_text="Roblox Account Manager",
                                     small_image="https://images.rbxcdn.com/97800c6d7bb00b55502c34db97837012.png",
-                                    small_text="Roblox active"
+                                    small_text=f"{len(active_users)} session(s) active",
+                                    buttons=_RPC_BUTTONS
                                 )
                             else:
                                 total_accts = len(self.manager.accounts)
                                 self.discord_rpc.set_activity(
-                                    details=f"📁 Idle | Managing {total_accts} account(s)",
+                                    details=f"📁 Idle · {total_accts} account(s) managed",
                                     state=f"💻 CPU: {cpu_val:.0f}% | RAM: {mem_val:.0f}%",
                                     large_image="https://raw.githubusercontent.com/ic3w0lf22/Roblox-Account-Manager/master/RBX%20Alt%20Manager/Resources/Roblox%20Account%20Manager.png",
-                                    large_text="Account Manager by Nerd"
+                                    large_text="Roblox Account Manager",
+                                    small_image="https://images.rbxcdn.com/97800c6d7bb00b55502c34db97837012.png",
+                                    small_text="No active sessions",
+                                    buttons=_RPC_BUTTONS
                                 )
                         except Exception as e:
                             print(f"[Discord RPC Worker Error] {e}")
-                        time.sleep(10)
-                        
+                        time.sleep(5)
+
                 threading.Thread(target=rpc_worker, daemon=True).start()
                 print("[Discord RPC] Dedicated presence background worker successfully started.")
         except Exception as e:
@@ -1153,33 +1163,8 @@ class AccountManagerUI:
 
     def check_for_updates(self):
         """Check for updates from GitHub releases"""
-        try:
-            print("[INFO] Checking for updates...")
-            response = requests.get(
-                "https://api.github.com/repos/evanovar/RobloxAccountManager/releases/latest",
-                timeout=5
-            )
-            
-            if response.status_code == 200:
-                latest_release = response.json()
-                latest_version = latest_release.get("tag_name", "").lstrip("v")
-                
-                current_clean = re.sub(r'(alpha|beta).*$', '', self.APP_VERSION, flags=re.IGNORECASE)
-                latest_clean = re.sub(r'(alpha|beta).*$', '', latest_version, flags=re.IGNORECASE)
-                
-                current_parts = tuple(map(int, current_clean.split(".")))
-                latest_parts = tuple(map(int, latest_clean.split(".")))
-                
-                if latest_parts > current_parts:
-                    print(f"[WARNING] New version available: {latest_version}")
-                    self.root.after(0, lambda: self.show_update_notification(latest_version))
-                else:
-                    print(f"[SUCCESS] You are on the latest version ({self.APP_VERSION})")
-            else:
-                print(f"[ERROR] Failed to check for updates (Status: {response.status_code})")
-                
-        except Exception as e:
-            print(f"[ERROR] Error checking for updates: {str(e)}")
+        print("[INFO] Check for updates disabled.")
+        return
 
     def show_update_notification(self, latest_version):
         """Show update notification dialog with download options"""
@@ -2312,7 +2297,8 @@ del /f /q "%~f0"
                 share_match = re.search(r'roblox\.com/share\?[^#]*code=([A-Za-z0-9]+)', private_server)
                 if share_match:
                     def _resolve_startup(ps=private_server):
-                        ck = next((d.get('cookie') for d in self.manager.accounts.values() if isinstance(d, dict) and d.get('cookie')), None)
+                        with self.manager._lock:
+                            ck = next((d.get('cookie') for d in self.manager.accounts.values() if isinstance(d, dict) and d.get('cookie')), None)
                         resolved_pid, _ = RobloxAPI.resolve_share_url(ps, cookie=ck)
                         if resolved_pid:
                             self.root.after(0, lambda: self.update_game_name_from_id(resolved_pid))
@@ -2339,7 +2325,8 @@ del /f /q "%~f0"
                 share_match = re.search(r'roblox\.com/share\?[^#]*code=([A-Za-z0-9]+)', private_server)
                 if share_match:
                     def _resolve_and_update(ps=private_server):
-                        ck = next((d.get('cookie') for d in self.manager.accounts.values() if isinstance(d, dict) and d.get('cookie')), None)
+                        with self.manager._lock:
+                            ck = next((d.get('cookie') for d in self.manager.accounts.values() if isinstance(d, dict) and d.get('cookie')), None)
                         resolved_pid, _ = RobloxAPI.resolve_share_url(ps, cookie=ck)
                         if resolved_pid:
                             self.root.after(0, lambda: self.update_game_name_from_id(resolved_pid))
@@ -3078,8 +3065,8 @@ del /f /q "%~f0"
     def _get_active_instance_usernames(self):
         """Return a list of usernames that correspond to currently running Roblox instances.
 
-        Uses existing PID -> user id helpers and RobloxAPI username lookup. Results are
-        de-duplicated and returned as a list of lowercase usernames for comparison.
+        Uses existing PID -> user id helpers. Results are de-duplicated and returned as a
+        list of lowercase usernames for comparison.
         """
         res = []
         try:
@@ -3090,14 +3077,20 @@ del /f /q "%~f0"
                     user_id, _ = self._get_user_id_from_pid(pid, used)
                     if user_id:
                         uid = int(user_id)
+                        uid_str = str(uid)
                         uname = self.instances_cache.get("user_id_to_username", {}).get(uid)
                         if not uname:
-                            try:
-                                uname = RobloxAPI.get_username_from_user_id(uid) or None
-                            except Exception:
-                                uname = None
-                            if uname:
-                                self.instances_cache.setdefault("user_id_to_username", {})[uid] = uname
+                            uname = self.instances_cache.get("user_id_to_username", {}).get(uid_str)
+                        if not uname:
+                            with self.manager._lock:
+                                for acc_name, acc_data in list(self.manager.accounts.items()):
+                                    if isinstance(acc_data, dict):
+                                        stored_uid = acc_data.get("user_id")
+                                        if stored_uid == uid_str or stored_uid == uid or str(stored_uid) == uid_str:
+                                            uname = acc_name
+                                            self.instances_cache.setdefault("user_id_to_username", {})[uid] = uname
+                                            self.instances_cache.setdefault("user_id_to_username", {})[uid_str] = uname
+                                            break
                         if uname:
                             res.append(str(uname))
                 except Exception:
@@ -3156,8 +3149,9 @@ del /f /q "%~f0"
     def _save_cookie_status(self, username, is_valid):
         """Update cookie status in memory and persist to accounts file"""
         self.cookie_status[username] = is_valid
-        if username in self.manager.accounts and isinstance(self.manager.accounts[username], dict):
-            self.manager.accounts[username]['cookie_valid'] = is_valid
+        with self.manager._lock:
+            if username in self.manager.accounts and isinstance(self.manager.accounts[username], dict):
+                self.manager.accounts[username]['cookie_valid'] = is_valid
 
     def _silent_check_cookies(self):
         """Trigger a background silent cookie check. Safe to call from any thread."""
@@ -3171,8 +3165,9 @@ del /f /q "%~f0"
             return
         self._cookie_check_running = True
         try:
-            accounts = [u for u in list(self.manager.accounts)
-                        if self.cookie_status.get(u) is not False]
+            with self.manager._lock:
+                accounts = [u for u in list(self.manager.accounts)
+                            if self.cookie_status.get(u) is not False]
             if not accounts:
                 return
             changed = False
@@ -3194,10 +3189,13 @@ del /f /q "%~f0"
         def run_refresh():
             try:
                 refreshed_any = False
-                for username, account_data in list(self.manager.accounts.items()):
-                    if not isinstance(account_data, dict):
-                        continue
-                        
+                with self.manager._lock:
+                    accounts_to_check = []
+                    for username, account_data in list(self.manager.accounts.items()):
+                        if isinstance(account_data, dict):
+                            accounts_to_check.append((username, dict(account_data)))
+
+                for username, account_data in accounts_to_check:
                     no_refresh = account_data.get("no_cookie_refresh", "false") == "true"
                     if no_refresh:
                         continue
@@ -3228,7 +3226,10 @@ del /f /q "%~f0"
                     
                     if idle_days > 20 and days_since_refresh >= 7:
                         print(f"[Heartbeat] Account '{username}' is idle ({idle_days:.1f} days) and due for cookie rotation...")
-                        account_data["last_attempted_refresh"] = time.strftime('%Y-%m-%d %H:%M:%S')
+                        attempt_time = time.strftime('%Y-%m-%d %H:%M:%S')
+                        with self.manager._lock:
+                            if username in self.manager.accounts and isinstance(self.manager.accounts[username], dict):
+                                self.manager.accounts[username]["last_attempted_refresh"] = attempt_time
                         self.manager.save_accounts()
                         
                         success, new_cookie = self.manager.rotate_cookie_session(username)
@@ -3363,34 +3364,35 @@ del /f /q "%~f0"
                         self._add_account_to_group(username, group_name)
                     return
 
-                ordered_usernames = list(self.manager.accounts.keys())
-                
-                if drag_index < len(self._list_row_map) and self._list_row_map[drag_index][0] == "account":
-                    drag_username = self._list_row_map[drag_index][1]
-                else:
-                    return
-                
-                if drag_username not in ordered_usernames:
-                    return
-                old_pos = ordered_usernames.index(drag_username)
-                ordered_usernames.pop(old_pos)
-                
-                if drop_index < len(self._list_row_map) and self._list_row_map[drop_index][0] == "account":
-                    drop_username = self._list_row_map[drop_index][1]
-                    if drop_username in ordered_usernames:
-                        new_pos = ordered_usernames.index(drop_username)
-                        ordered_usernames.insert(new_pos, drag_username)
+                with self.manager._lock:
+                    ordered_usernames = list(self.manager.accounts.keys())
+                    
+                    if drag_index < len(self._list_row_map) and self._list_row_map[drag_index][0] == "account":
+                        drag_username = self._list_row_map[drag_index][1]
+                    else:
+                        return
+                    
+                    if drag_username not in ordered_usernames:
+                        return
+                    old_pos = ordered_usernames.index(drag_username)
+                    ordered_usernames.pop(old_pos)
+                    
+                    if drop_index < len(self._list_row_map) and self._list_row_map[drop_index][0] == "account":
+                        drop_username = self._list_row_map[drop_index][1]
+                        if drop_username in ordered_usernames:
+                            new_pos = ordered_usernames.index(drop_username)
+                            ordered_usernames.insert(new_pos, drag_username)
+                        else:
+                            ordered_usernames.append(drag_username)
                     else:
                         ordered_usernames.append(drag_username)
-                else:
-                    ordered_usernames.append(drag_username)
-                
-                new_accounts = {}
-                for uname in ordered_usernames:
-                    new_accounts[uname] = self.manager.accounts[uname]
-                
-                self.manager.accounts = new_accounts
-                self.manager.save_accounts()
+                    
+                    new_accounts = {}
+                    for uname in ordered_usernames:
+                        new_accounts[uname] = self.manager.accounts[uname]
+                    
+                    self.manager.accounts = new_accounts
+                    self.manager.save_accounts()
                 
                 self.refresh_accounts()
                 
@@ -4297,8 +4299,10 @@ del /f /q "%~f0"
         def toggle_auto_refresh():
             self.hide_account_context_menu()
             new_val = 'false' if no_refresh_status else 'true'
-            self.manager.accounts[username]['no_cookie_refresh'] = new_val
-            self.manager.save_accounts()
+            with self.manager._lock:
+                if username in self.manager.accounts and isinstance(self.manager.accounts[username], dict):
+                    self.manager.accounts[username]['no_cookie_refresh'] = new_val
+                self.manager.save_accounts()
             print(f"[INFO] Set auto cookie refresh to {new_val} for {username}")
             self.refresh_accounts()
             
@@ -4695,7 +4699,9 @@ del /f /q "%~f0"
             account_scrollbar.pack(side="right", fill="y")
             account_listbox.config(yscrollcommand=account_scrollbar.set)
             
-            for account in sorted(self.manager.accounts.keys()):
+            with self.manager._lock:
+                accounts_keys = list(self.manager.accounts.keys())
+            for account in sorted(accounts_keys):
                 account_listbox.insert(tk.END, account)
             
             ttk.Label(form_frame, text="Place ID:", style="Dark.TLabel").pack(anchor="w")
@@ -6813,7 +6819,11 @@ del /f /q "%~f0"
             self.settings["graphics_optimizer_enabled"] = enabled
             self.save_settings()
             from classes.roblox_api import RobloxAPI
-            RobloxAPI.apply_graphics_optimization(enabled)
+            threading.Thread(
+                target=RobloxAPI.apply_graphics_optimization,
+                args=(enabled,),
+                daemon=True
+            ).start()
 
         graphics_opt_check = ttk.Checkbutton(
             roblox_frame,
@@ -7865,7 +7875,9 @@ del /f /q "%~f0"
                                 if active_users:
                                     raw_user = active_users[0]
                                     display_user = raw_user
-                                    for key in list(self.manager.accounts.keys()):
+                                    with self.manager._lock:
+                                        accounts_keys = list(self.manager.accounts.keys())
+                                    for key in accounts_keys:
                                         if key.lower() == raw_user.lower():
                                             display_user = key
                                             break
@@ -7878,7 +7890,8 @@ del /f /q "%~f0"
                                         small_text="Roblox active"
                                     )
                                 else:
-                                    total_accts = len(self.manager.accounts)
+                                    with self.manager._lock:
+                                        total_accts = len(self.manager.accounts)
                                     self.discord_rpc.set_activity(
                                         details=f"📁 Idle | Managing {total_accts} account(s)",
                                         state=f"💻 CPU: {cpu_val:.0f}% | RAM: {mem_val:.0f}%",
@@ -8211,33 +8224,50 @@ del /f /q "%~f0"
                     if user_id:
                         username = None
                         avatar_url = None
+                        uid_str = str(user_id)
+                        try:
+                            uid_int = int(user_id)
+                        except:
+                            uid_int = None
 
-                        if user_id in self.instances_cache["user_id_to_username"]:
-                            username = self.instances_cache["user_id_to_username"][user_id]
+                        if uid_str in self.instances_cache["user_id_to_username"]:
+                            username = self.instances_cache["user_id_to_username"][uid_str]
+                        elif uid_int is not None and uid_int in self.instances_cache["user_id_to_username"]:
+                            username = self.instances_cache["user_id_to_username"][uid_int]
                         else:
-                            for account in list(self.manager.accounts):
-                                stored_uid = self.manager.accounts[account].get("user_id")
-                                if stored_uid == user_id or stored_uid == str(user_id):
-                                    username = account
-                                    self.instances_cache["user_id_to_username"][user_id] = username
-                                    break
+                            with self.manager._lock:
+                                for account in list(self.manager.accounts):
+                                    stored_uid = self.manager.accounts[account].get("user_id")
+                                    if stored_uid == uid_str or stored_uid == uid_int or str(stored_uid) == uid_str:
+                                        username = account
+                                        self.instances_cache["user_id_to_username"][uid_str] = username
+                                        if uid_int is not None:
+                                            self.instances_cache["user_id_to_username"][uid_int] = username
+                                        break
 
                             if not username:
                                 username = RobloxAPI.get_username_from_user_id(user_id)
                                 if username:
-                                    self.instances_cache["user_id_to_username"][user_id] = username
-                                    for account in list(self.manager.accounts):
-                                        if account == username:
-                                            self.manager.accounts[account]["user_id"] = str(user_id)
-                                            self.manager.save_accounts()
-                                            break
+                                    self.instances_cache["user_id_to_username"][uid_str] = username
+                                    if uid_int is not None:
+                                        self.instances_cache["user_id_to_username"][uid_int] = username
+                                    with self.manager._lock:
+                                        for account in list(self.manager.accounts):
+                                            if account == username:
+                                                self.manager.accounts[account]["user_id"] = uid_str
+                                                break
+                                    self.manager.save_accounts()
 
-                        if user_id in self.instances_cache["user_id_to_avatar"]:
-                            avatar_url = self.instances_cache["user_id_to_avatar"][user_id]
+                        if uid_str in self.instances_cache["user_id_to_avatar"]:
+                            avatar_url = self.instances_cache["user_id_to_avatar"][uid_str]
+                        elif uid_int is not None and uid_int in self.instances_cache["user_id_to_avatar"]:
+                            avatar_url = self.instances_cache["user_id_to_avatar"][uid_int]
                         else:
                             avatar_url = RobloxAPI.get_user_avatar_url(user_id, "150x150")
                             if avatar_url:
-                                self.instances_cache["user_id_to_avatar"][user_id] = avatar_url
+                                self.instances_cache["user_id_to_avatar"][uid_str] = avatar_url
+                                if uid_int is not None:
+                                    self.instances_cache["user_id_to_avatar"][uid_int] = avatar_url
 
                         unresolved_entry["user_id"] = user_id
                         unresolved_entry["username"] = username
@@ -10850,18 +10880,27 @@ del /f /q "%~f0"
             if not (process.is_running() and process.name().lower() == "robloxplayerbeta.exe"):
                 return None, None
             
+            found_uid = None
             for uname, r_pid in list(self.auto_rejoin_pids.items()):
                 if r_pid == pid:
-                    for account in list(self.manager.accounts):
-                        if account == uname:
-                            stored_uid = self.manager.accounts[account].get("user_id")
-                            if stored_uid:
-                                return str(stored_uid), None
-                            uid = RobloxAPI.get_user_id_from_username(uname)
-                            if uid:
-                                self.manager.accounts[account]["user_id"] = str(uid)
-                                self.manager.save_accounts()
-                                return str(uid), None
+                    with self.manager._lock:
+                        for account in list(self.manager.accounts):
+                            if account == uname:
+                                stored_uid = self.manager.accounts[account].get("user_id")
+                                if stored_uid:
+                                    found_uid = str(stored_uid)
+                                break
+                    
+                    if found_uid:
+                        return found_uid, None
+                        
+                    uid = RobloxAPI.get_user_id_from_username(uname)
+                    if uid:
+                        with self.manager._lock:
+                            if uname in self.manager.accounts:
+                                self.manager.accounts[uname]["user_id"] = str(uid)
+                        self.manager.save_accounts()
+                        return str(uid), None
 
             try:
                 cmd_args = process.cmdline()
@@ -10869,16 +10908,25 @@ del /f /q "%~f0"
                     if hasattr(RobloxAPI, "launch_trackers"):
                         for tracker_id, uname in RobloxAPI.launch_trackers.items():
                             if tracker_id in arg:
-                                for account in list(self.manager.accounts):
-                                    if account == uname:
-                                        stored_uid = self.manager.accounts[account].get("user_id")
-                                        if stored_uid:
-                                            return str(stored_uid), None
-                                        uid = RobloxAPI.get_user_id_from_username(uname)
-                                        if uid:
-                                            self.manager.accounts[account]["user_id"] = str(uid)
-                                            self.manager.save_accounts()
-                                            return str(uid), None
+                                found_uid = None
+                                with self.manager._lock:
+                                    for account in list(self.manager.accounts):
+                                        if account == uname:
+                                            stored_uid = self.manager.accounts[account].get("user_id")
+                                            if stored_uid:
+                                                found_uid = str(stored_uid)
+                                            break
+                                            
+                                if found_uid:
+                                    return found_uid, None
+                                    
+                                uid = RobloxAPI.get_user_id_from_username(uname)
+                                if uid:
+                                    with self.manager._lock:
+                                        if uname in self.manager.accounts:
+                                            self.manager.accounts[uname]["user_id"] = str(uid)
+                                    self.manager.save_accounts()
+                                    return str(uid), None
             except:
                 pass
 
@@ -12293,11 +12341,12 @@ del /f /q "%~f0"
                     continue
 
                 cookie = None
-                for account_name in list(self.manager.accounts):
-                    account_data = self.manager.accounts[account_name]
-                    cookie = account_data.get("cookie") if isinstance(account_data, dict) else None
-                    if cookie:
-                        break
+                with self.manager._lock:
+                    for account_name in list(self.manager.accounts):
+                        account_data = self.manager.accounts[account_name]
+                        cookie = account_data.get("cookie") if isinstance(account_data, dict) else None
+                        if cookie:
+                            break
 
                 if not cookie:
                     self.watchlist_tracker_stop.wait(float(interval))

@@ -1,6 +1,7 @@
 import os
 import sys
 import tkinter as tk
+from tkinter import messagebox
 import threading
 import asyncio
 import time
@@ -320,3 +321,50 @@ class RefactoredAccountManagerUI(AccountManagerUI):
 
     def _update_active_instance_indicators(self):
         self._sync_active_instance_indicators()
+
+    def get_selected_username(self):
+        """Get the currently selected username using _list_row_map"""
+        selection = self.account_list.curselection()
+        if not selection:
+            messagebox.showwarning("No Selection", "Please select an account first.")
+            return None
+        
+        idx = selection[0]
+        if idx >= len(self._list_row_map):
+            return None
+            
+        kind, val = self._list_row_map[idx]
+        if kind == "group_header":
+            group_name = val
+            for k, v in self._list_row_map:
+                if k == "account" and self._get_username_group(v) == group_name:
+                    return v
+            messagebox.showwarning("Empty Group", f"Group '{group_name}' has no accounts.")
+            return None
+        
+        return val
+
+    def get_selected_usernames(self):
+        """Get all selected usernames using _list_row_map"""
+        selections = self.account_list.curselection()
+        if not selections:
+            messagebox.showwarning("No Selection", "Please select at least one account first.")
+            return []
+        
+        usernames = []
+        seen = set()
+        for index in selections:
+            if index >= len(self._list_row_map):
+                continue
+            kind, val = self._list_row_map[index]
+            if kind == "group_header":
+                group_name = val
+                for k2, v2 in self._list_row_map:
+                    if k2 == "account" and self._get_username_group(v2) == group_name and v2 not in seen:
+                        usernames.append(v2)
+                        seen.add(v2)
+            else:
+                if val not in seen:
+                    usernames.append(val)
+                    seen.add(val)
+        return usernames
