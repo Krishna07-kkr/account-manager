@@ -45,13 +45,29 @@ def get_definitions():
                     "type": 3,
                     "name": "target",
                     "description": "Specify 'all' or 'ram' to terminate all sessions, or enter a Roblox username",
-                    "required": True
+                    "required": False
                 }
             ]
         },
         {
             "name": "kill_all",
             "description": "Terminate all active Roblox player tab sessions instantly"
+        },
+        {
+            "name": "minimize",
+            "description": "Minimise all active Roblox tabs"
+        },
+        {
+            "name": "restore",
+            "description": "Restore all active Roblox tabs"
+        },
+        {
+            "name": "cascade",
+            "description": "Arrange all active Roblox tabs in cascade mode"
+        },
+        {
+            "name": "grid",
+            "description": "Arrange all active Roblox tabs in grid mode"
         }
     ]
 
@@ -251,7 +267,13 @@ async def handle_interaction(bot, command_name, d, token, headers, resolved_app_
         return True
 
     elif command_name == "kill":
-        target = d["data"]["options"][0]["value"].strip()
+        options = {o["name"]: o["value"] for o in d["data"].get("options", [])}
+        target = options.get("target", "").strip()
+        
+        if not target:
+            await bot.send_interactive_kill(interaction_id, interaction_token)
+            return True
+            
         url = f"https://discord.com/api/v10/interactions/{interaction_id}/{interaction_token}/callback"
         if target.lower() in ("ram", "all"):
             bot._send_callback(url, headers, {
@@ -277,13 +299,17 @@ async def handle_interaction(bot, command_name, d, token, headers, resolved_app_
                         pass
             bot._send_webhook_embed(
                 "Roblox Instances Force-Closed",
-                f"Force-closed all active Roblox game client sessions (Closed tabs: **{count}**). Physical memory (RAM) has been flushed.",
-                0xE74C3C
+                "Force-closed all active Roblox game client sessions.",
+                0xE74C3C,
+                fields=[
+                    {"name": "🔴 Terminated Player Clients", "value": f"**{count}** game clients terminated", "inline": True},
+                    {"name": "⚙️ Status", "value": "Flushed memory (RAM)", "inline": True}
+                ]
             )
             bot._send_followup(resolved_app_id, interaction_token, {
                 "embeds": [{
                     "title": "💥 Process Cleanup Completed",
-                    "description": f"Successfully force-closed all active Roblox game client sessions and flushed physical memory (RAM).",
+                    "description": "Successfully force-closed all active Roblox game client sessions and flushed physical memory (RAM).",
                     "color": 0xE74C3C,
                     "fields": [
                         {"name": "🔴 Terminated Player Clients", "value": f"**{count}** game clients terminated", "inline": True}
@@ -319,8 +345,13 @@ async def handle_interaction(bot, command_name, d, token, headers, resolved_app_
                         pass
                     bot._send_webhook_embed(
                         "Roblox Instance Terminated",
-                        f"Roblox game client session for account **{target}** (PID: `{resolved_pid}`) force-closed successfully.",
-                        0xE74C3C
+                        f"Roblox game client session for account **{target}** force-closed successfully.",
+                        0xE74C3C,
+                        fields=[
+                            {"name": "👤 Account", "value": f"**{target}**", "inline": True},
+                            {"name": "🔢 PID", "value": f"`{resolved_pid}`", "inline": True},
+                            {"name": "🔌 Status", "value": "🔴 Terminated", "inline": True}
+                        ]
                     )
                     bot._send_followup(resolved_app_id, interaction_token, {
                         "embeds": [{
@@ -393,6 +424,48 @@ async def handle_interaction(bot, command_name, d, token, headers, resolved_app_
                     {"name": "🔴 Terminated Player Clients", "value": f"**{count}** game clients terminated", "inline": True}
                 ],
                 "footer": {"text": "Roblox Account Manager | Process Management"},
+                "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+            }]
+        })
+        return True
+
+    elif command_name in ("minimize", "restore", "cascade", "grid"):
+        url = f"https://discord.com/api/v10/interactions/{interaction_id}/{interaction_token}/callback"
+        bot._send_callback(url, headers, {
+            "type": 4,
+            "data": {
+                "embeds": [{
+                    "title": "⚙️ Window Manager Action Initiated",
+                    "description": f"Executing `{command_name}` on all active Roblox client windows...",
+                    "color": 0x95A5A6
+                }]
+            }
+        })
+        count = 0
+        if command_name == "minimize":
+            count = bot.ui.minimize_all_roblox()
+        elif command_name == "restore":
+            count = bot.ui.restore_all_roblox()
+        elif command_name == "cascade":
+            count = bot.ui.cascade_roblox_windows()
+        elif command_name == "grid":
+            count = bot.ui.grid_roblox_windows()
+
+        bot._send_webhook_embed(
+            "Window Layout Updated",
+            f"Roblox window action `{command_name}` completed. Impacted tabs: **{count}**.",
+            0x3498DB
+        )
+        bot._send_followup(resolved_app_id, interaction_token, {
+            "embeds": [{
+                "title": "🖥️ Window Action Completed",
+                "description": f"Successfully performed `{command_name}` against all running game windows.",
+                "color": 0x2ECC71,
+                "fields": [
+                    {"name": "⚙️ Action Name", "value": f"`{command_name.capitalize()}`", "inline": True},
+                    {"name": "📱 Game Windows Affected", "value": f"**{count}** windows", "inline": True}
+                ],
+                "footer": {"text": "Roblox Account Manager | Window Manager"},
                 "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
             }]
         })

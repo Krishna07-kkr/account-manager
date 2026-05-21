@@ -9999,8 +9999,8 @@ del /f /q "%~f0"
         anti_afk_window.resizable(False, False)
         anti_afk_window.transient(self.root)
 
-        settings_width = 300
-        settings_height = 225
+        settings_width = 320
+        settings_height = 360
         self.root.update_idletasks()
         x = self.root.winfo_x() + (self.root.winfo_width() - settings_width) // 2
         y = self.root.winfo_y() + (self.root.winfo_height() - settings_height) // 2
@@ -10122,6 +10122,37 @@ del /f /q "%~f0"
         interval_spinner.bind("<KeyRelease>", lambda _e: save_anti_afk_settings())
         interval_spinner.bind("<FocusOut>", lambda _e: save_anti_afk_settings())
 
+        win_actions_frame = ttk.LabelFrame(main_frame, text="Window Manager", style="Dark.TLabelframe")
+        win_actions_frame.pack(fill="x", pady=(10, 0), ipady=5)
+        btn_grid = ttk.Frame(win_actions_frame, style="Dark.TFrame")
+        btn_grid.pack(fill="x", padx=5, pady=5)
+        ttk.Button(
+            btn_grid,
+            text="Minimise All",
+            style="Dark.TButton",
+            command=self.minimize_all_roblox
+        ).grid(row=0, column=0, padx=5, pady=2, sticky="ew")
+        ttk.Button(
+            btn_grid,
+            text="Restore All",
+            style="Dark.TButton",
+            command=self.restore_all_roblox
+        ).grid(row=0, column=1, padx=5, pady=2, sticky="ew")
+        ttk.Button(
+            btn_grid,
+            text="Cascade",
+            style="Dark.TButton",
+            command=self.cascade_roblox_windows
+        ).grid(row=1, column=0, padx=5, pady=2, sticky="ew")
+        ttk.Button(
+            btn_grid,
+            text="Grid Layout",
+            style="Dark.TButton",
+            command=self.grid_roblox_windows
+        ).grid(row=1, column=1, padx=5, pady=2, sticky="ew")
+        btn_grid.columnconfigure(0, weight=1)
+        btn_grid.columnconfigure(1, weight=1)
+
         ttk.Button(
             main_frame,
             text="Close",
@@ -10157,11 +10188,10 @@ del /f /q "%~f0"
     def _trim_roblox_process_ram(self, pid):
         try:
             kernel32 = ctypes.windll.kernel32
-            psapi = ctypes.windll.psapi
-            h_process = kernel32.OpenProcess(0x1F0FFF, False, int(pid))
+            h_process = kernel32.OpenProcess(0x0500, False, int(pid))
             if h_process:
                 try:
-                    psapi.EmptyWorkingSet(h_process)
+                    kernel32.SetProcessWorkingSetSize(h_process, -1, -1)
                 finally:
                     kernel32.CloseHandle(h_process)
                 print(f"[INFO] Trimmed Roblox RAM for PID {pid}")
@@ -10189,6 +10219,84 @@ del /f /q "%~f0"
 
             if self.optimize_ram_stop_event.wait(15):
                 break
+    
+    def minimize_all_roblox(self):
+        hwnds = self._get_roblox_windows()
+        for hwnd in hwnds:
+            win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
+        return len(hwnds)
+
+    def restore_all_roblox(self):
+        hwnds = self._get_roblox_windows()
+        for hwnd in hwnds:
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        return len(hwnds)
+
+    def cascade_roblox_windows(self):
+        hwnds = self._get_roblox_windows()
+        if not hwnds:
+            return 0
+        try:
+            work_area = win32api.GetMonitorInfo(win32api.MonitorFromPoint((0, 0)))['Work']
+            left, top, right, bottom = work_area
+        except Exception:
+            left, top, right, bottom = 0, 0, 1920, 1080
+        work_width = right - left
+        work_height = bottom - top
+        win_w = min(800, int(work_width * 0.8))
+        win_h = min(600, int(work_height * 0.8))
+        start_x = left + 30
+        start_y = top + 30
+        offset_x = 30
+        offset_y = 30
+        for idx, hwnd in enumerate(hwnds):
+            pos_x = start_x + (idx * offset_x)
+            pos_y = start_y + (idx * offset_y)
+            if pos_x + win_w > right or pos_y + win_h > bottom:
+                reset_cycle = idx % 5
+                pos_x = start_x + (reset_cycle * offset_x)
+                pos_y = start_y + (reset_cycle * offset_y)
+            if win32gui.IsIconic(hwnd):
+                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+            win32gui.SetWindowPos(hwnd, win32con.HWND_TOP, pos_x, pos_y, win_w, win_h, win32con.SWP_SHOWWINDOW)
+        return len(hwnds)
+
+    def grid_roblox_windows(self):
+        hwnds = self._get_roblox_windows()
+        if not hwnds:
+            return 0
+        try:
+            work_area = win32api.GetMonitorInfo(win32api.MonitorFromPoint((0, 0)))['Work']
+            left, top, right, bottom = work_area
+        except Exception:
+            left, top, right, bottom = 0, 0, 1920, 1080
+        work_width = right - left
+        work_height = bottom - top
+        import math
+        n = len(hwnds)
+        cols = math.ceil(math.sqrt(n))
+        rows = math.ceil(n / cols)
+        cell_w = int(work_width / cols)
+        cell_h = int(work_height / rows)
+        for idx, hwnd in enumerate(hwnds):
+            r = idx // cols
+            c = idx % cols
+            pos_x = left + (c * cell_w)
+            pos_y = top + (r * cell_h)
+            if win32gui.IsIconic(hwnd):
+                win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+            win32gui.SetWindowPos(hwnd, win32con.HWND_TOP, pos_x, pos_y, cell_w, cell_h, win32con.SWP_SHOWWINDOW)
+        return len(hwnds)
+
+    def _get_roblox_windows(self):
+        hwnds = []
+        def _cb(hwnd, extra):
+            if win32gui.IsWindow(hwnd) and win32gui.IsWindowVisible(hwnd):
+                if win32gui.GetClassName(hwnd) == "RobloxPlayClass":
+                    hwnds.append(hwnd)
+            return True
+        win32gui.EnumWindows(_cb, None)
+        return hwnds
     
     def start_auto_rejoin_for_account(self, account):
         """Start the auto-rejoin background thread for a specific account"""

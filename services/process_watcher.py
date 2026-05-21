@@ -207,9 +207,9 @@ class ProcessWatcherService:
             try:
                 rss = proc.info['memory_info'].rss / 1024 / 1024
                 if rss > limit_mb:
-                    handle = ctypes.windll.kernel32.OpenProcess(0x1F0FFF, False, proc.info['pid'])
+                    handle = ctypes.windll.kernel32.OpenProcess(0x0500, False, proc.info['pid'])
                     if handle:
-                        ctypes.windll.psapi.EmptyWorkingSet(handle)
+                        ctypes.windll.kernel32.SetProcessWorkingSetSize(handle, -1, -1)
                         ctypes.windll.kernel32.CloseHandle(handle)
             except:
                 pass
