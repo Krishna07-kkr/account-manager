@@ -871,30 +871,7 @@ def open_settings_window(self):
     )
     optimize_ram_check.pack(anchor="w", pady=(0, 10))
     self.optimize_ram_check = optimize_ram_check
-    
-    graphics_opt_var = tk.BooleanVar(value=self.settings.get("graphics_optimizer_enabled", False))
-    
-    def on_graphics_opt_toggle():
-        enabled = graphics_opt_var.get()
-        self.settings["graphics_optimizer_enabled"] = enabled
-        self.save_settings()
-        from classes.roblox_api import RobloxAPI
-        import threading
-        threading.Thread(
-            target=RobloxAPI.apply_graphics_optimization,
-            args=(enabled,),
-            daemon=True
-        ).start()
-    
-    graphics_opt_check = ttk.Checkbutton(
-        roblox_frame,
-        text="Graphics Optimizer (Extreme Low CPU/RAM Mode)",
-        variable=graphics_opt_var,
-        style="Dark.TCheckbutton",
-        command=on_graphics_opt_toggle
-    )
-    graphics_opt_check.pack(anchor="w", pady=(0, 10))
-    self.graphics_opt_check = graphics_opt_check
+
     
     optimize_ram_limit_row = ttk.Frame(roblox_frame, style="Dark.TFrame")
     optimize_ram_limit_row.pack(fill="x", pady=(0, 4))

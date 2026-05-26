@@ -87,8 +87,14 @@ class ThemeManager:
         }
     }
     
-    def __init__(self, themes_dir="AccountManagerData/themes"):
+    def __init__(self, themes_dir=None):
         """Initialize theme manager with themes directory"""
+        if themes_dir is None:
+            import sys
+            base_dir = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else (sys.argv[0] if (sys.argv and sys.argv[0]) else __file__)))
+            themes_dir = os.path.join(base_dir, "AccountManagerData", "themes")
+        else:
+            themes_dir = os.path.abspath(themes_dir)
         self.themes_dir = themes_dir
         self.builtin_themes_dir = os.path.join(themes_dir, "builtin")
         self.custom_themes_dir = os.path.join(themes_dir, "custom")

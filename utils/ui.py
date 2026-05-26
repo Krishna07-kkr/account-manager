@@ -83,7 +83,8 @@ class AccountManagerUI:
             except:
                 pass
         
-        self.data_folder = "AccountManagerData"
+        base_dir = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else (sys.argv[0] if (sys.argv and sys.argv[0]) else __file__)))
+        self.data_folder = os.path.join(base_dir, "AccountManagerData")
         if not os.path.exists(self.data_folder):
             os.makedirs(self.data_folder)
         
@@ -476,13 +477,6 @@ class AccountManagerUI:
         self.start_dashboard_report_automation()
         
         try:
-            from classes.roblox_api import RobloxAPI
-            threading.Thread(
-                target=RobloxAPI.apply_graphics_optimization,
-                args=(self.settings.get("graphics_optimizer_enabled", False),),
-                daemon=True
-            ).start()
-            
             try:
                 if not os.path.exists("icon.png") and os.path.exists("icon.ico"):
                     from PIL import Image
@@ -6812,28 +6806,6 @@ del /f /q "%~f0"
         optimize_ram_check.pack(anchor="w", pady=(0, 10))
         self.optimize_ram_check = optimize_ram_check
 
-        graphics_opt_var = tk.BooleanVar(value=self.settings.get("graphics_optimizer_enabled", False))
-
-        def on_graphics_opt_toggle():
-            enabled = graphics_opt_var.get()
-            self.settings["graphics_optimizer_enabled"] = enabled
-            self.save_settings()
-            from classes.roblox_api import RobloxAPI
-            threading.Thread(
-                target=RobloxAPI.apply_graphics_optimization,
-                args=(enabled,),
-                daemon=True
-            ).start()
-
-        graphics_opt_check = ttk.Checkbutton(
-            roblox_frame,
-            text="Graphics Optimizer (Extreme Low CPU/RAM Mode)",
-            variable=graphics_opt_var,
-            style="Dark.TCheckbutton",
-            command=on_graphics_opt_toggle
-        )
-        graphics_opt_check.pack(anchor="w", pady=(0, 10))
-        self.graphics_opt_check = graphics_opt_check
 
         optimize_ram_limit_row = ttk.Frame(roblox_frame, style="Dark.TFrame")
         optimize_ram_limit_row.pack(fill="x", pady=(0, 4))

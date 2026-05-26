@@ -50,8 +50,7 @@ license.enc
 AccountManagerData/
 AccountManagerData/**
 
-# ── KeyAuth client credentials (never commit — distribute privately) ──────────
-services/keyauth_secure.py
+
 
 # ── Encrypted / backup / cookie files ────────────────────────────────────────
 *.dat
@@ -93,3 +92,8 @@ scratch/
 
 # ── Bundled Windows utilities ─────────────────────────────────────────────────
 handle64.exe
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class

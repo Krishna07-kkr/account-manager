@@ -798,179 +798,96 @@ class RobloxAPI:
                 print("[ERROR] LOCALAPPDATA environment variable not found.")
                 return False
                 
-            xml_path = os.path.join(local_appdata, 'Roblox', 'GlobalBasicSettings_13.xml')
+            roblox_dir = os.path.join(local_appdata, 'Roblox')
+            os.makedirs(roblox_dir, exist_ok=True)
             
-            # Ensure the Roblox folder exists
-            os.makedirs(os.path.dirname(xml_path), exist_ok=True)
+            # Find all files starting with 'GlobalBasicSettings' to be robust to hidden extensions/suffixes
+            xml_paths = []
+            if os.path.exists(roblox_dir):
+                for f in os.listdir(roblox_dir):
+                    if f.startswith('GlobalBasicSettings'):
+                        xml_paths.append(os.path.join(roblox_dir, f))
             
-            content = ""
-            file_exists = os.path.exists(xml_path)
-            original_mode = None
+            # If no settings files exist, default to GlobalBasicSettings_13.xml
+            if not xml_paths:
+                xml_paths = [os.path.join(roblox_dir, 'GlobalBasicSettings_13.xml')]
             
-            if file_exists:
-                # Remove read-only attribute if it is set
-                try:
-                    original_mode = os.stat(xml_path).st_mode
-                    if not (original_mode & stat.S_IWRITE):
-                        os.chmod(xml_path, stat.S_IWRITE)
-                except Exception as chmod_err:
-                    print(f"[WARNING] Failed to query/modify permissions on {xml_path}: {chmod_err}")
+            success = True
+            for xml_path in xml_paths:
+                content = ""
+                file_exists = os.path.exists(xml_path)
+                original_mode = None
                 
-                try:
-                    with open(xml_path, 'r', encoding='utf-8', errors='ignore') as f:
-                        content = f.read()
-                except Exception as e:
-                    print(f"[ERROR] Failed to read {xml_path}: {e}")
-                    if file_exists and original_mode is not None and not (original_mode & stat.S_IWRITE):
-                        try:
-                            os.chmod(xml_path, original_mode)
-                        except:
-                            pass
-                    return False
-            else:
-                # Minimal XML template
-                content = (
-                    '<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" '
-                    'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
-                    'xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">\n'
-                    '\t<External>null</External>\n'
-                    '\t<External>nil</External>\n'
-                    '\t<Item class="UserGameSettings" referent="RBX794959B217D94CBE9846638A8FAF70E4">\n'
-                    '\t\t<Properties>\n'
-                    '\t\t</Properties>\n'
-                    '\t</Item>\n'
-                    '</roblox>'
-                )
-            
-            # Replace/insert the FramerateCap
-            pattern = re.compile(r'<int\s+name="FramerateCap">(\d+)</int>')
-            if pattern.search(content):
-                new_content = pattern.sub(f'<int name="FramerateCap">{fps_cap}</int>', content)
-            else:
-                # Insert inside <Properties>
-                props_pattern = re.compile(r'<Properties>')
-                if props_pattern.search(content):
-                    new_content = props_pattern.sub(f'<Properties>\n\t\t\t<int name="FramerateCap">{fps_cap}</int>', content)
-                else:
-                    print("[ERROR] <Properties> block not found in GlobalBasicSettings_13.xml")
-                    if file_exists and original_mode is not None and not (original_mode & stat.S_IWRITE):
-                        try:
-                            os.chmod(xml_path, original_mode)
-                        except:
-                            pass
-                    return False
-            
-            try:
-                with open(xml_path, 'w', encoding='utf-8') as f:
-                    f.write(new_content)
-                print(f"[SUCCESS] Set Roblox FramerateCap to {fps_cap} in {xml_path}")
-            except Exception as e:
-                print(f"[ERROR] Failed to write to {xml_path}: {e}")
-                return False
-            finally:
-                # Always restore read-only attribute if file exists and was read-only
-                if file_exists and original_mode is not None and not (original_mode & stat.S_IWRITE):
+                if file_exists:
+                    # Remove read-only attribute if it is set
                     try:
-                        os.chmod(xml_path, original_mode)
+                        original_mode = os.stat(xml_path).st_mode
+                        if not (original_mode & stat.S_IWRITE):
+                            os.chmod(xml_path, stat.S_IWRITE)
                     except Exception as chmod_err:
-                        print(f"[WARNING] Failed to restore permissions on {xml_path}: {chmod_err}")
-            return True
-        except Exception as e:
-            print(f"[ERROR] Failed to set XML framerate cap: {e}")
-            return False
-
-    @staticmethod
-    def apply_graphics_optimization(enabled=True):
-        """Configure local ClientAppSettings.json in active Roblox player version directory to optimize graphics rendering"""
-        try:
-            import os
-            import json
-            local_appdata = os.getenv('LOCALAPPDATA')
-            if not local_appdata:
-                return False
-                
-            opt_flags = {
-                "FIntRomRenderGlobalTextureQualityOverride": 3,
-                "FFlagDebugDisableDirect3D11": "True",
-                "FFlagRomRenderLightGridShadows": "False",
-                "FFlagRomRenderGlobalShadows": "False",
-                "FIntRenderLODDistanceScalePercent": 10
-            }
-            
-            applied = False
-            launcher_roots = ['Roblox', 'Bloxstrap', 'Fishstrap', 'Froststrap', 'Voidstrap']
-            for root in launcher_roots:
-                versions_dir = os.path.join(local_appdata, root, 'Versions')
-                if os.path.exists(versions_dir):
-                    for item in os.listdir(versions_dir):
-                        item_path = os.path.join(versions_dir, item)
-                        if os.path.isdir(item_path) and os.path.exists(os.path.join(item_path, 'RobloxPlayerBeta.exe')):
-                            client_settings_dir = os.path.join(item_path, 'ClientSettings')
-                            if not os.path.exists(client_settings_dir):
-                                os.makedirs(client_settings_dir)
-                                
-                            settings_file = os.path.join(client_settings_dir, 'ClientAppSettings.json')
-                            settings = {}
-                            if os.path.exists(settings_file):
-                                try:
-                                    with open(settings_file, 'r', encoding='utf-8') as f:
-                                        settings = json.load(f)
-                                except Exception:
-                                    settings = {}
-                                    
-                            if enabled:
-                                settings.update(opt_flags)
-                                if "DFIntTaskSchedulerTargetFps" in settings:
-                                    del settings["DFIntTaskSchedulerTargetFps"]
-                                print(f"[Graphics Optimizer] Optimization enabled. Rendering overrides applied to: {settings_file}")
-                            else:
-                                for k in opt_flags.keys():
-                                    if k in settings:
-                                        del settings[k]
-                                if "DFIntTaskSchedulerTargetFps" in settings:
-                                    del settings["DFIntTaskSchedulerTargetFps"]
-                                print(f"[Graphics Optimizer] Optimization disabled. Restoring default overrides in: {settings_file}")
-                                        
-                            with open(settings_file, 'w', encoding='utf-8') as f:
-                                json.dump(settings, f, indent=2)
-                            applied = True
-                
-                if root == 'Bloxstrap':
-                    mods_client_settings_dir = os.path.join(local_appdata, 'Bloxstrap', 'Modifications', 'ClientSettings')
-                    if enabled:
-                        if not os.path.exists(mods_client_settings_dir):
+                        print(f"[WARNING] Failed to query/modify permissions on {xml_path}: {chmod_err}")
+                    
+                    try:
+                        with open(xml_path, 'r', encoding='utf-8', errors='ignore') as f:
+                            content = f.read()
+                    except Exception as e:
+                        print(f"[ERROR] Failed to read {xml_path}: {e}")
+                        if file_exists and original_mode is not None and not (original_mode & stat.S_IWRITE):
                             try:
-                                os.makedirs(mods_client_settings_dir)
+                                os.chmod(xml_path, original_mode)
                             except:
                                 pass
-                    if os.path.exists(mods_client_settings_dir):
-                        mods_settings_file = os.path.join(mods_client_settings_dir, 'ClientAppSettings.json')
-                        settings = {}
-                        if os.path.exists(mods_settings_file):
+                        success = False
+                        continue
+                else:
+                    # Minimal XML template
+                    content = (
+                        '<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" '
+                        'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+                        'xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">\n'
+                        '\t<External>null</External>\n'
+                        '\t<External>nil</External>\n'
+                        '\t<Item class="UserGameSettings" referent="RBX794959B217D94CBE9846638A8FAF70E4">\n'
+                        '\t\t<Properties>\n'
+                        '\t\t</Properties>\n'
+                        '\t</Item>\n'
+                        '</roblox>'
+                    )
+                
+                # Replace/insert the FramerateCap
+                pattern = re.compile(r'<int\s+name="FramerateCap">(\d+)</int>')
+                if pattern.search(content):
+                    new_content = pattern.sub(f'<int name="FramerateCap">{fps_cap}</int>', content)
+                else:
+                    # Insert inside <Properties>
+                    props_pattern = re.compile(r'<Properties>')
+                    if props_pattern.search(content):
+                        new_content = props_pattern.sub(f'<Properties>\n\t\t\t<int name="FramerateCap">{fps_cap}</int>', content)
+                    else:
+                        print(f"[ERROR] <Properties> block not found in {xml_path}")
+                        if file_exists and original_mode is not None and not (original_mode & stat.S_IWRITE):
                             try:
-                                with open(mods_settings_file, 'r', encoding='utf-8') as f:
-                                    settings = json.load(f)
-                            except Exception:
-                                settings = {}
-                        if enabled:
-                            settings.update(opt_flags)
-                            if "DFIntTaskSchedulerTargetFps" in settings:
-                                del settings["DFIntTaskSchedulerTargetFps"]
-                            print(f"[Graphics Optimizer] Optimization enabled. Rendering overrides applied to Bloxstrap mods: {mods_settings_file}")
-                        else:
-                            for k in opt_flags.keys():
-                                if k in settings:
-                                    del settings[k]
-                            if "DFIntTaskSchedulerTargetFps" in settings:
-                                del settings["DFIntTaskSchedulerTargetFps"]
-                            print(f"[Graphics Optimizer] Optimization disabled. Restoring default overrides in Bloxstrap mods: {mods_settings_file}")
-                        with open(mods_settings_file, 'w', encoding='utf-8') as f:
-                            json.dump(settings, f, indent=2)
-                        applied = True
-            
-            # Apply or revert XML framerate cap
-            RobloxAPI.set_xml_framerate_cap(30 if enabled else 60)
-            return applied
+                                os.chmod(xml_path, original_mode)
+                            except:
+                                pass
+                        success = False
+                        continue
+                
+                try:
+                    with open(xml_path, 'w', encoding='utf-8') as f:
+                        f.write(new_content)
+                    print(f"[SUCCESS] Set Roblox FramerateCap to {fps_cap} in {xml_path}")
+                except Exception as e:
+                    print(f"[ERROR] Failed to write to {xml_path}: {e}")
+                    success = False
+                finally:
+                    # Always restore read-only attribute if file exists and was read-only
+                    if file_exists and original_mode is not None and not (original_mode & stat.S_IWRITE):
+                        try:
+                            os.chmod(xml_path, original_mode)
+                        except Exception as chmod_err:
+                            print(f"[WARNING] Failed to restore permissions on {xml_path}: {chmod_err}")
+            return success
         except Exception as e:
-            print(f"[Graphics Optimizer Error] Failed to configure ClientAppSettings: {e}")
+            print(f"[ERROR] Failed to set XML framerate cap: {e}")
             return False

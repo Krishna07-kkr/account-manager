@@ -58,9 +58,27 @@ class EncryptionSetupUI:
     
     def __init__(self):
         self.result = None
-        self.data_folder = "AccountManagerData"
-        if not os.path.exists(self.data_folder):
-            os.makedirs(self.data_folder)
+        base_dir = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else (sys.argv[0] if (sys.argv and sys.argv[0]) else __file__)))
+        self.data_folder = os.path.join(base_dir, "AccountManagerData")
+        try:
+            if not os.path.exists(self.data_folder):
+                os.makedirs(self.data_folder)
+        except Exception as e:
+            import traceback
+            error_details = (
+                f"Failed to create data folder in encryption setup.\n\n"
+                f"Target Path: {self.data_folder}\n"
+                f"Base Dir: {base_dir}\n"
+                f"Executable: {sys.executable}\n"
+                f"CWD: {os.getcwd()}\n"
+                f"Error: {e}\n\n"
+                f"Traceback:\n{traceback.format_exc()}"
+            )
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showerror("Folder Creation Error", error_details)
+            root.destroy()
+            sys.exit(1)
         self.encryption_config = EncryptionConfig(os.path.join(self.data_folder, "encryption_config.json"))
         self.should_exit = False
         

@@ -31,7 +31,8 @@ class RobloxAccountManager:
     
     def __init__(self, password=None):
         self._lock = threading.RLock()
-        self.data_folder = "AccountManagerData"
+        base_dir = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else (sys.argv[0] if (sys.argv and sys.argv[0]) else __file__)))
+        self.data_folder = os.path.join(base_dir, "AccountManagerData")
         if not os.path.exists(self.data_folder):
             os.makedirs(self.data_folder)
         

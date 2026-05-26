@@ -1,5 +1,15 @@
 import os
 import sys
+
+# Ensure the working directory is set to the folder of the executable/script.
+# This prevents Windows API errors (like WinError 2 on directory creation/existence checks)
+# if the application is launched with an invalid or deleted current working directory.
+try:
+    base_dir = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else (sys.argv[0] if (sys.argv and sys.argv[0]) else __file__)))
+    os.chdir(base_dir)
+except Exception:
+    pass
+
 import warnings
 import tkinter as tk
 from tkinter import messagebox, simpledialog
@@ -151,10 +161,25 @@ def enforce_keyauth():
 
 def main():
     enforce_keyauth()
+    base_dir = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else (sys.argv[0] if (sys.argv and sys.argv[0]) else __file__)))
+    data_folder = os.path.join(base_dir, "AccountManagerData")
+    try:
+        if not os.path.exists(data_folder):
+            os.makedirs(data_folder)
+    except Exception as e:
+        import traceback
+        error_details = (
+            f"Failed to create data folder.\n\n"
+            f"Target Path: {data_folder}\n"
+            f"Base Dir: {base_dir}\n"
+            f"Executable: {sys.executable}\n"
+            f"CWD: {os.getcwd()}\n"
+            f"Error: {e}\n\n"
+            f"Traceback:\n{traceback.format_exc()}"
+        )
+        _show("showerror", "Folder Creation Error", error_details)
+        sys.exit(1)
     password = setup_encryption()
-    data_folder = "AccountManagerData"
-    if not os.path.exists(data_folder):
-        os.makedirs(data_folder)
     encryption_config = EncryptionConfig(os.path.join(data_folder, "encryption_config.json"))
     if encryption_config.is_encryption_enabled() and encryption_config.get_encryption_method() == 'password':
         if password is None:

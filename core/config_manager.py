@@ -19,7 +19,9 @@ class ConfigManager:
         if self._initialized:
             return
         if config_file is None:
-            config_file = os.path.join("AccountManagerData", "AccountData.enc")
+            import sys
+            base_dir = os.path.dirname(os.path.abspath(sys.executable if getattr(sys, 'frozen', False) else (sys.argv[0] if (sys.argv and sys.argv[0]) else __file__)))
+            config_file = os.path.join(base_dir, "AccountManagerData", "AccountData.enc")
         self.config_file = config_file
         self.lock = threading.Lock()
         self.config = {}
